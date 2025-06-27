@@ -8,7 +8,7 @@ TABLE_NAME = st.secrets["TABLE_NAME"]
 
 st.title("IBKR Dividendy Dashboard")
 
-@st.cache_data
+@st.cache_data(ttl=0)
 def load_data():
     engine = create_engine(DB_URL)
     return pd.read_sql(f"SELECT * FROM {TABLE_NAME}", engine)
