@@ -19,6 +19,7 @@ if df.empty:
     st.warning("Tabuľka s dividendami je prázdna.")
 else:
     st.subheader("Zoznam dividend")
+    df['settleDate'] = pd.to_datetime(df['settleDate'], format='%Y%m%d').dt.strftime('%m/%d/%Y') # preformatuje datum
     st.dataframe(df)
 
     st.subheader("Súhrn podľa meny")
