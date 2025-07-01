@@ -19,7 +19,21 @@ if df.empty:
     st.warning("Tabuľka s dividendami je prázdna.")
 else:
     st.subheader("Zoznam dividend")
-    df['settleDate'] = pd.to_datetime(df['settleDate'], format='%Y%m%d').dt.strftime('%m/%d/%Y') # preformatuje datum
+    #df['settleDate'] = pd.to_datetime(df['settleDate'], format='%Y%m%d').dt.strftime('%m/%d/%Y') # preformatuje datum
+
+    #
+    # Najprv prekonvertuj na datetime (ponechaj si datetime objekt pre extrakciu)
+    df['settleDate'] = pd.to_datetime(df['settleDate'], format='%Y%m%d')
+
+    # Extrahuj mesiac ako skratku (Jan, Feb, ...)
+    df['Month'] = df['settleDate'].dt.strftime('%b')
+
+    # Extrahuj rok ako číslo
+    df['Year'] = df['settleDate'].dt.year
+
+    # Až potom preformatuj dátum pre zobrazenie (napr. pre zobrazenie v Streamlite)
+    df['settleDate'] = df['settleDate'].dt.strftime('%m/%d/%Y')
+    #
 
     st.dataframe(df)
 
