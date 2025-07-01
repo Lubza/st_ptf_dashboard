@@ -20,6 +20,9 @@ if df.empty:
 else:
     st.subheader("Zoznam dividend")
     df['settleDate'] = pd.to_datetime(df['settleDate'], format='%Y%m%d').dt.strftime('%m/%d/%Y') # preformatuje datum
+    # extrahuj názov mesiaca (skratku) a rok
+    df['Month'] = df['settleDate'].dt.strftime('%b')  # Jan, Feb, Mar, ...
+    df['Year'] = df['settleDate'].dt.year
     st.dataframe(df)
 
     st.subheader("Súhrn podľa meny")
