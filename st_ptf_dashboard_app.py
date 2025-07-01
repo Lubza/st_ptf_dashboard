@@ -37,8 +37,8 @@ else:
 
     st.dataframe(df)
 
-    st.subheader("Súhrn podľa meny")
-    st.bar_chart(df.groupby("currency")["amount"].sum())
+    st.subheader("Súhrn podľa roku")
+    st.bar_chart(df.groupby("Year")["amount"].sum())
 
     st.subheader("Sumár za obdobie")
     df['settleDate'] = pd.to_datetime(df['settleDate'], format="%Y%m%d")
