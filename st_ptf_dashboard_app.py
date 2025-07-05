@@ -6,7 +6,7 @@ import os
 DB_URL = st.secrets["DB_URL"]
 TABLE_NAME = st.secrets["TABLE_NAME"]
 
-st.title("IBKR Dividendy Dashboard")
+st.title("Dividends overview")
 
 @st.cache_data(ttl=0)
 def load_data():
@@ -16,30 +16,27 @@ def load_data():
 df = load_data()
 
 if df.empty:
-    st.warning("Tabuľka s dividendami je prázdna.")
+    st.warning("The dividends table is empty.")
 else:
-    st.subheader("Zoznam dividend")
-    #df['settleDate'] = pd.to_datetime(df['settleDate'], format='%Y%m%d').dt.strftime('%m/%d/%Y') # preformatuje datum
+    st.subheader("List of Dividends")
 
-    #
-    # Najprv prekonvertuj na datetime (ponechaj si datetime objekt pre extrakciu)
+    # First convert to datetime (keep datetime object for extraction)
     df['settleDate'] = pd.to_datetime(df['settleDate'], format='%Y%m%d')
 
-    # Extrahuj mesiac ako skratku (Jan, Feb, ...)
+    # Extract month as abbreviation (Jan, Feb, ...)
     df['Month'] = df['settleDate'].dt.strftime('%b')
 
-    # Extrahuj rok ako číslo
+    # Extract year as number
     df['Year'] = df['settleDate'].dt.year
 
-    # Až potom preformatuj dátum pre zobrazenie (napr. pre zobrazenie v Streamlite)
+    # Then reformat date for display (e.g., in Streamlit)
     df['settleDate'] = df['settleDate'].dt.strftime('%m/%d/%Y')
-    #
-
+    
     st.dataframe(df)
 
-    st.subheader("Súhrn podľa roku")
+    st.subheader("Summary by Year")
     st.bar_chart(df.groupby("Year")["amount"].sum())
 
-    st.subheader("Sumár za obdobie")
+    st.subheader("Summary over Time")
     df['settleDate'] = pd.to_datetime(df['settleDate'], format="%Y%m%d")
     st.line_chart(df.groupby("settleDate")["amount"].sum())
