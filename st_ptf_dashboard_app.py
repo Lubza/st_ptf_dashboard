@@ -52,11 +52,11 @@ else:
     
     st.dataframe(df)
 
+    st.subheader("Summary by Year (in original currency)")
+    st.bar_chart(df.groupby("Year")["amount"].sum())
+
     st.subheader("Summary by Year (in USD)")
     st.bar_chart(df.groupby("Year")["USD_amount"].sum())
-
-    st.subheader("Summary over Time (in USD)")
-    st.line_chart(df.groupby("settleDate")["USD_amount"].sum())
 
     st.subheader("Rows without FX conversion")
     st.write(df[df['USD_amount'].isnull()])
