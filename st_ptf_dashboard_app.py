@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy import create_engine
 from forex_python.converter import CurrencyRates
+import altair as alt
 
 DB_URL = st.secrets["DB_URL"]
 TABLE_NAME = st.secrets["TABLE_NAME"]
@@ -60,3 +61,17 @@ else:
 
     st.subheader("Rows without FX conversion")
     st.write(df[df['USD_amount'].isnull()])
+
+    # Agreguj podľa rok a mena
+    summary = df.groupby(['Year', 'currency'])['amount'].sum().reset_index()
+
+    st.subheader("Summary by Year and Currency (Stacked Bar Chart)")
+
+    chart = alt.Chart(summary).mark_bar().encode(
+        x=alt.X('Year:O', title='Year'),
+        y=alt.Y('amount:Q', title='Sum of Dividends'),
+        color=alt.Color('currency:N', title='Currency'),
+        tooltip=['Year', 'currency', 'amount']
+    ).properties(width=600)
+
+    st.altair_chart(chart, use_container_width=True)
