@@ -3,3 +3,4 @@ SQLAlchemy==2.0.34
 streamlit==1.38.0
 psycopg2-binary
 python-dotenv
+forex-python

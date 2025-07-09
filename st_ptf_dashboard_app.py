@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from sqlalchemy import create_engine
-import os                      
+from forex_python.converter import CurrencyRates
 
 DB_URL = st.secrets["DB_URL"]
 TABLE_NAME = st.secrets["TABLE_NAME"]
@@ -20,23 +20,43 @@ if df.empty:
 else:
     st.subheader("List of Dividends")
 
-    # First convert to datetime (keep datetime object for extraction)
+    # Na datetime (pre ďalšie použitie)
     df['settleDate'] = pd.to_datetime(df['settleDate'], format='%Y%m%d')
 
-    # Extract month as abbreviation (Jan, Feb, ...)
-    df['Month'] = df['settleDate'].dt.strftime('%b')
+    c = CurrencyRates()
 
-    # Extract year as number
+    @st.cache_data(show_spinner=False)
+    def get_fx_rate(date, currency):
+        if currency == "USD":
+            return 1.0
+        dt = pd.to_datetime(date)
+        try:
+            fx = c.get_rate(currency, 'USD', dt)
+            return fx
+        except Exception as e:
+            st.warning(f"Chyba FX pre {currency} na {dt.date()}: {e}")
+            return None
+
+    def convert_to_usd(row):
+        fx = get_fx_rate(row['settleDate'], row['currency'])
+        if fx is None:
+            return None
+        return row['amount'] * fx
+
+    df['USD_amount'] = df.apply(convert_to_usd, axis=1)
+
+    df['Month'] = df['settleDate'].dt.strftime('%b')
     df['Year'] = df['settleDate'].dt.year
 
-    # Then reformat date for display (e.g., in Streamlit)
-    df['settleDate'] = df['settleDate'].dt.strftime('%m/%d/%Y')
+    df['settleDate_str'] = df['settleDate'].dt.strftime('%m/%d/%Y')
     
     st.dataframe(df)
 
-    st.subheader("Summary by Year")
-    st.bar_chart(df.groupby("Year")["amount"].sum())
+    st.subheader("Summary by Year (in USD)")
+    st.bar_chart(df.groupby("Year")["USD_amount"].sum())
 
-    st.subheader("Summary over Time")
-    df['settleDate'] = pd.to_datetime(df['settleDate'], format="%Y%m%d")
-    st.line_chart(df.groupby("settleDate")["amount"].sum())
+    st.subheader("Summary over Time (in USD)")
+    st.line_chart(df.groupby("settleDate")["USD_amount"].sum())
+
+    st.subheader("Rows without FX conversion")
+    st.write(df[df['USD_amount'].isnull()])
