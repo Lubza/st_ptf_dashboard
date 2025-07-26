@@ -44,3 +44,38 @@ else:
     ).properties(width=600)
 
     st.altair_chart(chart, use_container_width=True)
+
+    ###
+    df['settleDate'] = pd.to_datetime(df['settleDate'], format='%Y%m%d')
+    df['Year'] = df['settleDate'].dt.year
+    df['Month'] = df['settleDate'].dt.strftime('%b')  # Skratka mesiaca Jan, Feb, ...
+
+    # Výber roka (dropdown)
+    selected_year = st.selectbox('Vyber rok:', sorted(df['Year'].unique()))
+
+    # Filtrovanie podľa vybraného roka
+    df_year = df[df['Year'] == selected_year]
+
+    # Agregácia podľa mesiaca a meny
+    summary = (
+        df_year.groupby(['Month', 'currency'])['amount']
+        .sum()
+        .reset_index()
+    )
+
+    # Zabezpeč zoradenie mesiacov správne:
+    months_order = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    summary['Month'] = pd.Categorical(summary['Month'], categories=months_order, ordered=True)
+    summary = summary.sort_values('Month')
+
+    # Vykreslenie grafu
+    st.subheader(f"Summary by Month and Currency ({selected_year})")
+    chart1 = alt.Chart(summary).mark_bar().encode(
+        x=alt.X('Month:O', title='Month', sort=months_order),
+        y=alt.Y('amount:Q', title='Sum of Dividends'),
+        color=alt.Color('currency:N', title='Currency'),
+        tooltip=['Month', 'currency', 'amount']
+    ).properties(width=700)
+
+    st.altair_chart(chart1, use_container_width=True)
