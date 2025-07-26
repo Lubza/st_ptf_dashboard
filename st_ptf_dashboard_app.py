@@ -26,7 +26,7 @@ else:
 
     st.dataframe(df)
 
-    tab1, tab2 = st.tabs(["Súhrn podľa roka", "Súhrn podľa mesiaca"])
+    tab1, tab2, tab3 = st.tabs(["Súhrn podľa roka", "Súhrn podľa mesiaca", "Súhrn podľa tickera"])
 
     with tab1:
         st.subheader("Summary by Year (in original currency)")
@@ -64,3 +64,32 @@ else:
             tooltip=['Month', 'currency', 'amount']
         ).properties(width=700)
         st.altair_chart(chart1, use_container_width=True)
+
+        # Tab 3: Súhrn podľa tickera
+    with tab3:
+        st.subheader("Výber tickerov")
+        ticker_options = sorted(df['symbol'].dropna().unique())
+        selected_tickers = st.multiselect(
+            "Zvoľ jeden alebo viac tickerov:",
+            options=ticker_options,
+            default=ticker_options[:1],  # predvybraný prvý ticker
+            key="ticker_select"
+        )
+
+        if selected_tickers:
+            df_ticker = df[df['symbol'].isin(selected_tickers)]
+            summary_ticker = (
+                df_ticker.groupby(['Year', 'symbol'])['amount']
+                .sum()
+                .reset_index()
+            )
+            st.subheader(f"Súhrn dividend podľa tickera a roka")
+            chart2 = alt.Chart(summary_ticker).mark_bar().encode(
+                x=alt.X('Year:O', title='Year'),
+                y=alt.Y('amount:Q', title='Sum of Dividends'),
+                color=alt.Color('symbol:N', title='Ticker'),
+                tooltip=['Year', 'symbol', 'amount']
+            ).properties(width=700)
+            st.altair_chart(chart2, use_container_width=True)
+        else:
+            st.info("Vyber aspoň jeden ticker na zobrazenie grafu.")
