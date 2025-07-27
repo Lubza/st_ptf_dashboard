@@ -44,9 +44,9 @@ else:
         )
 
         with tab1:
-            st.subheader("Summary by Year (in original currency)")
-            st.bar_chart(df.groupby("Year")["amount"].sum())
-            summary = df.groupby(['Year', 'currency'])['amount'].sum().reset_index()
+            #st.subheader("Summary by Year (in original currency)")
+            #st.bar_chart(df.groupby("Year")["amount"].sum())
+            #summary = df.groupby(['Year', 'currency'])['amount'].sum().reset_index()
             st.subheader("Summary by Year and Currency (Stacked Bar Chart)")
             chart = alt.Chart(summary).mark_bar().encode(
                 x=alt.X('Year:O', title='Year'),
