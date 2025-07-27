@@ -53,7 +53,7 @@ else:
                 y=alt.Y('amount:Q', title='Sum of Dividends'),
                 color=alt.Color('currency:N', title='Currency'),
                 tooltip=['Year', 'currency', 'amount']
-            ).properties(width=400) # bolo 600
+            ).properties(width=200) # bolo 600
             st.altair_chart(chart, use_container_width=True)
 
         with tab2:
@@ -75,7 +75,7 @@ else:
                 y=alt.Y('amount:Q', title='Sum of Dividends'),
                 color=alt.Color('currency:N', title='Currency'),
                 tooltip=['Month', 'currency', 'amount']
-            ).properties(width=400) # bolo 700
+            ).properties(width=200) # bolo 700
             st.altair_chart(chart1, use_container_width=True)
 
         with tab3:
@@ -101,7 +101,7 @@ else:
                     y=alt.Y('amount:Q', title='Sum of Dividends'),
                     color=alt.Color('symbol:N', title='Ticker'),
                     tooltip=['Year', 'symbol', 'amount']
-                ).properties(width=400) #bolo 700
+                ).properties(width=200) #bolo 700
                 st.altair_chart(chart2, use_container_width=True)
             else:
                 st.info("Vyber aspoň jeden ticker na zobrazenie grafu.")
