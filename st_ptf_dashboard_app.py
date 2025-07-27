@@ -24,7 +24,14 @@ else:
     df['Year'] = df['settleDate'].dt.year
     df['settleDate_str'] = df['settleDate'].dt.strftime('%m/%d/%Y')
 
-    st.dataframe(df)
+    # Najskôr zoradíme podľa settleDate_str zostupne (najnovšie hore)
+    df_sorted = df.sort_values("settleDate_str", ascending=False)
+
+    # Vyberieme len požadované stĺpce a v správnom poradí
+    df_show = df_sorted[["symbol", "settleDate_str", "currency", "amount"]]
+
+    # Zobrazíme tabuľku v streamlit
+    st.dataframe(df_show)
 
     tab1, tab2, tab3 = st.tabs(["Súhrn podľa roka", "Súhrn podľa mesiaca", "Súhrn podľa tickera"])
 
