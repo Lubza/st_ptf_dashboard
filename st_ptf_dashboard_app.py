@@ -25,7 +25,7 @@ else:
     df['settleDate_str'] = df['settleDate'].dt.strftime('%m/%d/%Y')
 
     # Najskôr zoradíme podľa settleDate_str zostupne (najnovšie hore)
-    df_sorted = df.sort_values("settleDate_str", ascending=False)
+    df_sorted = df.sort_values("settleDate", ascending=False)
 
     # Vyberieme len požadované stĺpce a v správnom poradí
     df_show = df_sorted[["symbol", "settleDate_str", "currency", "amount"]]
