@@ -29,7 +29,7 @@ else:
     df_show = df_sorted[["symbol", "settleDate_str", "currency", "amount"]].reset_index(drop=True)
 
     # --- Rozloženie do stĺpcov
-    col1, col2 = st.columns([1.8, 2.7])  # Pomer šírok namiesto 5 je 3
+    col1, col2 = st.columns([1.8, 5])  # Pomer šírok namiesto 1.3, 2.7
 
     with col1:
         st.dataframe(df_show, height=200) #namiesto 520 je 400
