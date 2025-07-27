@@ -29,7 +29,7 @@ else:
     df_show = df_sorted[["symbol", "settleDate_str", "currency", "amount"]].reset_index(drop=True)
 
     # --- Rozloženie do stĺpcov
-    col1, col2 = st.columns([1.5, 2.7])  # Pomer šírok namiesto 5 je 3
+    col1, col2 = st.columns([1.3, 2.7])  # Pomer šírok namiesto 5 je 3
 
     with col1:
         st.dataframe(df_show, height=400) #namiesto 520 je 400
@@ -46,7 +46,7 @@ else:
         with tab1:
             #st.subheader("Summary by Year (in original currency)")
             #st.bar_chart(df.groupby("Year")["amount"].sum())
-            #summary = df.groupby(['Year', 'currency'])['amount'].sum().reset_index()
+            summary = df.groupby(['Year', 'currency'])['amount'].sum().reset_index()
             st.subheader("Summary by Year and Currency (Stacked Bar Chart)")
             chart = alt.Chart(summary).mark_bar().encode(
                 x=alt.X('Year:O', title='Year'),
