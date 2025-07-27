@@ -58,25 +58,34 @@ else:
 
         with tab2:
             st.subheader("Mesačný prehľad podľa roka")
-            selected_year = st.selectbox('Vyber rok:', sorted(df['Year'].unique()), key="year_select")
-            df_year = df[df['Year'] == selected_year]
-            summary_month = (
-                df_year.groupby(['Month', 'currency'])['amount']
-                .sum()
-                .reset_index()
-            )
-            months_order = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                            'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-            summary_month['Month'] = pd.Categorical(summary_month['Month'], categories=months_order, ordered=True)
-            summary_month = summary_month.sort_values('Month')
-            st.subheader(f"Summary by Month and Currency ({selected_year})")
-            chart1 = alt.Chart(summary_month).mark_bar().encode(
-                x=alt.X('Month:O', title='Month', sort=months_order),
-                y=alt.Y('amount:Q', title='Sum of Dividends'),
-                color=alt.Color('currency:N', title='Currency'),
-                tooltip=['Month', 'currency', 'amount']
-            ).properties(width=600) # bolo 700
-            st.altair_chart(chart1, use_container_width=False)   # bolo True
+            col_year, col_chart = st.columns([1, 3])  # 1:3 = selectbox bude užší
+
+            with col_year:
+                selected_year = st.selectbox(
+                    'Vyber rok:',
+                    sorted(df['Year'].unique()),
+                    key="year_select"
+                    )
+            with col_chart:
+                df_year = df[df['Year'] == selected_year]
+                summary_month = (
+                    df_year.groupby(['Month', 'currency'])['amount']
+                    .sum()
+                    .reset_index()
+                    )
+                months_order = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+                summary_month['Month'] = pd.Categorical(summary_month['Month'], categories=months_order, ordered=True)
+                summary_month = summary_month.sort_values('Month')
+
+                st.subheader(f"Summary by Month and Currency ({selected_year})")
+                chart1 = alt.Chart(summary_month).mark_bar().encode(
+                    x=alt.X('Month:O', title='Month', sort=months_order),
+                    y=alt.Y('amount:Q', title='Sum of Dividends'),
+                    color=alt.Color('currency:N', title='Currency'),
+                    tooltip=['Month', 'currency', 'amount']
+                ).properties(width=600)  # Zúžiš šírku grafu podľa potreby
+                st.altair_chart(chart1, use_container_width=False)  # nechci width=True!
 
         with tab3:
             st.subheader("Výber tickerov")
