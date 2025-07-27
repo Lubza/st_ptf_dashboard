@@ -3,7 +3,7 @@ import pandas as pd
 from sqlalchemy import create_engine
 import altair as alt
 
-st.set_page_config(layout="wide")  # stránka bude širšia
+st.set_page_config(layout="centered")  # stránka bude širšia
 
 DB_URL = st.secrets["DB_URL"]
 TABLE_NAME = st.secrets["TABLE_NAME"]
