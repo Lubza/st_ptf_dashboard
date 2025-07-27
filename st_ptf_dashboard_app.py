@@ -58,34 +58,48 @@ else:
 
         with tab2:
             st.subheader("Mesačný prehľad podľa roka")
-            col_year, col_chart = st.columns([1, 3])  # 1:3 = selectbox bude užší
+            
+            # Vytvor "prázdny" stĺpec pre zarovnanie na stred alebo rozšírenie (voliteľné)
+            # _, col_center, _ = st.columns([0.2, 1.0, 0.2])  # Ak chceš centrovať
+            
+            # Namiesto columns daj všetko pod seba a zjednoť šírku selectboxu a grafu
+            width_px = 700
 
-            with col_year:
-                selected_year = st.selectbox(
-                    'Vyber rok:',
-                    sorted(df['Year'].unique()),
-                    key="year_select"
-                    )
-            with col_chart:
-                df_year = df[df['Year'] == selected_year]
-                summary_month = (
-                    df_year.groupby(['Month', 'currency'])['amount']
-                    .sum()
-                    .reset_index()
-                    )
-                months_order = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-                summary_month['Month'] = pd.Categorical(summary_month['Month'], categories=months_order, ordered=True)
-                summary_month = summary_month.sort_values('Month')
+            selected_year = st.selectbox(
+                'Vyber rok:',
+                sorted(df['Year'].unique()),
+                key="year_select"
+            )
+            # Stiahnuť do šírky pomocou st.markdown - Streamlit selectbox nemá width, ale hack je možné spraviť CSS:
+            st.markdown(
+                f"""<style>
+                div[data-baseweb="select"] > div {{
+                    width: {width_px}px !important;
+                }}
+                </style>""",
+                unsafe_allow_html=True,
+            )
 
-                st.subheader(f"Summary by Month and Currency ({selected_year})")
-                chart1 = alt.Chart(summary_month).mark_bar().encode(
-                    x=alt.X('Month:O', title='Month', sort=months_order),
-                    y=alt.Y('amount:Q', title='Sum of Dividends'),
-                    color=alt.Color('currency:N', title='Currency'),
-                    tooltip=['Month', 'currency', 'amount']
-                ).properties(width=600)  # Zúžiš šírku grafu podľa potreby
-                st.altair_chart(chart1, use_container_width=False)  # nechci width=True!
+            df_year = df[df['Year'] == selected_year]
+            summary_month = (
+                df_year.groupby(['Month', 'currency'])['amount']
+                .sum()
+                .reset_index()
+            )
+            months_order = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                            'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+            summary_month['Month'] = pd.Categorical(summary_month['Month'], categories=months_order, ordered=True)
+            summary_month = summary_month.sort_values('Month')
+
+            st.subheader(f"Summary by Month and Currency ({selected_year})")
+            chart1 = alt.Chart(summary_month).mark_bar().encode(
+                x=alt.X('Month:O', title='Month', sort=months_order),
+                y=alt.Y('amount:Q', title='Sum of Dividends'),
+                color=alt.Color('currency:N', title='Currency'),
+                tooltip=['Month', 'currency', 'amount']
+            ).properties(width=width_px)
+
+            st.altair_chart(chart1, use_container_width=False)
 
         with tab3:
             st.subheader("Výber tickerov")
