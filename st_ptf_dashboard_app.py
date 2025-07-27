@@ -32,7 +32,7 @@ else:
     col1, col2 = st.columns([1.8, 2.7])  # Pomer šírok namiesto 5 je 3
 
     with col1:
-        st.dataframe(df_show, height=400) #namiesto 520 je 400
+        st.dataframe(df_show, height=200) #namiesto 520 je 400
 
     with col2:
         tab1, tab2, tab3 = st.tabs(
