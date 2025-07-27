@@ -7,6 +7,7 @@ DB_URL = st.secrets["DB_URL"]
 TABLE_NAME = st.secrets["TABLE_NAME"]
 
 st.title("Dividends overview")
+st.write(df.dtypes)
 
 @st.cache_data(ttl=0)
 def load_data():
@@ -32,8 +33,7 @@ else:
 
     # Zobrazíme tabuľku v streamlit
     st.dataframe(df_show)
-    st.write(df.dtypes)
-
+   
     tab1, tab2, tab3 = st.tabs(["Súhrn podľa roka", "Súhrn podľa mesiaca", "Súhrn podľa tickera"])
 
     with tab1:
