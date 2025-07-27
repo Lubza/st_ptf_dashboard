@@ -30,8 +30,8 @@ else:
     # Vyberieme len požadované stĺpce a v správnom poradí
     df_show = df_sorted[["symbol", "settleDate_str", "currency", "amount"]]
     df_show = df_show.reset_index(drop=True)
+    
     # Zobrazíme tabuľku v streamlit
-    st.write(df.dtypes)
     st.dataframe(df_show)
    
     tab1, tab2, tab3 = st.tabs(["Súhrn podľa roka", "Súhrn podľa mesiaca", "Súhrn podľa tickera"])
