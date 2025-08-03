@@ -3,6 +3,8 @@ import pandas as pd
 from sqlalchemy import create_engine
 import altair as alt
 
+st.sidebar.error("🚨 Toto je NOVÁ verze – pokud to nevidíš, běží stará verze!")
+
 st.set_page_config(layout="wide")  # stránka bude širšia
 
 DB_URL = st.secrets["DB_URL"]
