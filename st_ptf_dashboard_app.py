@@ -6,7 +6,7 @@ import altair as alt
 st.set_page_config(layout="wide")  # stránka bude širšia
 
 DB_URL = st.secrets["DB_URL"]
-TABLE_NAME = st.secrets["TABLE_NAME"]
+TABLE_DIVI = st.secrets["TABLE_DIVI"]
 
 # --- SIDEBAR (pravý panel)
 st.sidebar.title("📂 Navigácia")
@@ -24,7 +24,7 @@ st.title("Dividends overview")
 @st.cache_data(ttl=0)
 def load_data():
     engine = create_engine(DB_URL)
-    return pd.read_sql(f"SELECT * FROM {TABLE_NAME}", engine)
+    return pd.read_sql(f"SELECT * FROM {TABLE_DIVI}", engine)
 
 df = load_data()
 
@@ -129,8 +129,8 @@ if page == "📊 Dividends Overview":  # 🔹 HLAVNÁ STRÁNKA
                 else:
                     st.info("Vyber aspoň jeden ticker na zobrazenie grafu.")
 
-elif page == "📈 Analýza":
-    st.header("📈 Analýza dividend")
+elif page == "📈 Transactions":
+    st.header("📈 Transactions")
     st.info("Tu môžeš neskôr doplniť grafy pre podrobnejšiu analýzu.")
 
 elif page == "⚙️ Nastavenia":
