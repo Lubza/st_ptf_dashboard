@@ -12,7 +12,7 @@ TABLE_DIVI = st.secrets["TABLE_DIVI"]
 st.sidebar.title("📂 Navigácia")
 page = st.sidebar.radio(
     "Choď na stránku:",
-    ["📊 Dividends Overview", "📈 Analýza", "⚙️ Nastavenia"]
+    ["📊 Dividends Overview", "📈 Transactions", "⚙️ Nastavenia"]
 )
 
 st.sidebar.markdown("---")
