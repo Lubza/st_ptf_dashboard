@@ -7,6 +7,7 @@ st.set_page_config(layout="wide")  # stránka bude širšia
 
 DB_URL = st.secrets["DB_URL"]
 TABLE_DIVI = st.secrets["TABLE_DIVI"]
+TABLE_TRANSACTIONS = st.secrets["TABLE_TRANSACTIONS"]
 
 # --- SIDEBAR (pravý panel)
 st.sidebar.title("📂 Navigácia")
@@ -19,32 +20,38 @@ st.sidebar.markdown("---")
 st.sidebar.info("Tu môžeš pridať ďalšie sekcie alebo filter.")
 
 # --- HLAVNÝ OBSAH
-st.title("Dividends overview")
+st.title("Portfolio overview")
 
 @st.cache_data(ttl=0)
 def load_data():
     engine = create_engine(DB_URL)
     return pd.read_sql(f"SELECT * FROM {TABLE_DIVI}", engine)
 
-df = load_data()
+def load_data():
+    engine = create_engine(DB_URL)
+    return pd.read_sql(f"SELECT * FROM {TABLE_TRANSACTIONS}", engine)
+
+
+df_divi = load_data()
+df_transactions = load_data()
 
 if page == "📊 Dividends Overview":  # 🔹 HLAVNÁ STRÁNKA
-    if df.empty:
+    if df_divi.empty:
         st.warning("The dividends table is empty.")
     else:
-        df['settleDate'] = pd.to_datetime(df['settleDate'], format='%Y%m%d')
-        df['Month'] = df['settleDate'].dt.strftime('%b')
-        df['Year'] = df['settleDate'].dt.year
-        df['settleDate_str'] = df['settleDate'].dt.strftime('%m/%d/%Y')
+        df_divi['settleDate'] = pd.to_datetime(df_divi['settleDate'], format='%Y%m%d')
+        df_divi['Month'] = df_divi['settleDate'].dt.strftime('%b')
+        df_divi['Year'] = df_divi['settleDate'].dt.year
+        df_divi['settleDate_str'] = df_divi['settleDate'].dt.strftime('%m/%d/%Y')
 
-        df_sorted = df.sort_values("settleDate", ascending=False)
-        df_show = df_sorted[["symbol", "settleDate_str", "currency", "amount"]].reset_index(drop=True)
+        df_divi_sorted = df_divi.sort_values("settleDate", ascending=False)
+        df_divi_show = df_divi_sorted[["symbol", "settleDate_str", "currency", "amount"]].reset_index(drop=True)
 
         # --- Rozloženie do stĺpcov
         col1, col2 = st.columns([1.3, 2.7])  # Pomer šírok namiesto 1.3, 2.7
 
         with col1:
-            st.dataframe(df_show, height=200)
+            st.dataframe(df_divi_show, height=200)
 
         with col2:
             tab1, tab2, tab3 = st.tabs(
@@ -52,7 +59,7 @@ if page == "📊 Dividends Overview":  # 🔹 HLAVNÁ STRÁNKA
             )
 
             with tab1:
-                summary = df.groupby(['Year', 'currency'])['amount'].sum().reset_index()
+                summary = df_divi.groupby(['Year', 'currency'])['amount'].sum().reset_index()
                 st.subheader("Summary by Year and Currency (Stacked Bar Chart)")
                 chart = alt.Chart(summary).mark_bar().encode(
                     x=alt.X('Year:O', title='Year'),
@@ -68,7 +75,7 @@ if page == "📊 Dividends Overview":  # 🔹 HLAVNÁ STRÁNKA
 
                 selected_year = st.selectbox(
                     'Vyber rok:',
-                    sorted(df['Year'].unique()),
+                    sorted(df_divi['Year'].unique()),
                     key="year_select"
                 )
                 st.markdown(
@@ -80,9 +87,9 @@ if page == "📊 Dividends Overview":  # 🔹 HLAVNÁ STRÁNKA
                     unsafe_allow_html=True,
                 )
 
-                df_year = df[df['Year'] == selected_year]
+                df_divi_year = df_divi[df_divi['Year'] == selected_year]
                 summary_month = (
-                    df_year.groupby(['Month', 'currency'])['amount']
+                    df_divi_year.groupby(['Month', 'currency'])['amount']
                     .sum()
                     .reset_index()
                 )
@@ -103,7 +110,7 @@ if page == "📊 Dividends Overview":  # 🔹 HLAVNÁ STRÁNKA
 
             with tab3:
                 st.subheader("Výber tickerov")
-                ticker_options = sorted(df['symbol'].dropna().unique())
+                ticker_options = sorted(df_divi['symbol'].dropna().unique())
                 selected_tickers = st.multiselect(
                     "Zvoľ jeden alebo viac tickerov:",
                     options=ticker_options,
@@ -112,9 +119,9 @@ if page == "📊 Dividends Overview":  # 🔹 HLAVNÁ STRÁNKA
                 )
 
                 if selected_tickers:
-                    df_ticker = df[df['symbol'].isin(selected_tickers)]
+                    df_divi_ticker = df_divi[df_divi['symbol'].isin(selected_tickers)]
                     summary_ticker = (
-                        df_ticker.groupby(['Year', 'symbol'])['amount']
+                        df_divi_ticker.groupby(['Year', 'symbol'])['amount']
                         .sum()
                         .reset_index()
                     )
