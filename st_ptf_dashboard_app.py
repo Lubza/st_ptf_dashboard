@@ -3,143 +3,144 @@ import pandas as pd
 from sqlalchemy import create_engine
 import altair as alt
 
-st.set_page_config(layout="wide")  # stránka bude širšia
+st.set_page_config(layout="wide")
 
-DB_URL = st.secrets["DB_URL"]
-TABLE_DIVI = st.secrets["TABLE_DIVI"]
-TABLE_TRANSACTIONS = st.secrets["TABLE_TRANSACTIONS"]
+# načítame si z secrets.yml
+DB_URL               = st.secrets["DB_URL"]
+TABLE_DIVI           = st.secrets["TABLE_DIVI"]
+TABLE_TRANSACTIONS   = st.secrets["TABLE_TRANSACTIONS"]
 
-# --- SIDEBAR (pravý panel)
+# --- SIDEBAR
 st.sidebar.title("📂 Navigácia")
 page = st.sidebar.radio(
     "Choď na stránku:",
     ["📊 Dividends Overview", "📈 Transactions", "⚙️ Nastavenia"]
 )
-
 st.sidebar.markdown("---")
 st.sidebar.info("Tu môžeš pridať ďalšie sekcie alebo filter.")
 
-# --- HLAVNÝ OBSAH
-st.title("Portfolio overview")
-
-@st.cache_data(ttl=0)
-def load_data():
+# --- FUNCTIONS na načítanie dát
+@st.cache_data(ttl=600)
+def load_dividends() -> pd.DataFrame:
     engine = create_engine(DB_URL)
-    return pd.read_sql(f"SELECT * FROM {TABLE_DIVI}", engine)
+    df = pd.read_sql(f"SELECT * FROM {TABLE_DIVI}", engine)
+    # všetky názvy stĺpcov lowercase (Postgres ich tak vyexportuje)
+    df.columns = [c.lower() for c in df.columns]
+    return df
 
-def load_data():
+@st.cache_data(ttl=600)
+def load_transactions() -> pd.DataFrame:
     engine = create_engine(DB_URL)
-    return pd.read_sql(f"SELECT * FROM {TABLE_TRANSACTIONS}", engine)
+    df = pd.read_sql(f"SELECT * FROM {TABLE_TRANSACTIONS}", engine)
+    # ak treba, tiež by si mohol stĺpce lowercasovať
+    return df
 
+df_divi = load_dividends()
+df_tx   = load_transactions()
 
-df_divi = load_data()
-df_transactions = load_data()
+# --- STRÁNKA: Dividends Overview
+if page == "📊 Dividends Overview":
+    st.title("Dividends overview")
 
-if page == "📊 Dividends Overview":  # 🔹 HLAVNÁ STRÁNKA
     if df_divi.empty:
         st.warning("The dividends table is empty.")
     else:
-        df_divi['settleDate'] = pd.to_datetime(df_divi['settleDate'], format='%Y%m%d')
-        df_divi['Month'] = df_divi['settleDate'].dt.strftime('%b')
-        df_divi['Year'] = df_divi['settleDate'].dt.year
-        df_divi['settleDate_str'] = df_divi['settleDate'].dt.strftime('%m/%d/%Y')
+        # 1) Parsujeme dátum pod správnym menom
+        #    po lowercasovaní ho máme v df_divi stĺpec 'settledate'
+        df_divi['settledate'] = pd.to_datetime(df_divi['settledate'], format='%Y%m%d')
+        df_divi['month']      = df_divi['settledate'].dt.strftime('%b')
+        df_divi['year']       = df_divi['settledate'].dt.year
+        df_divi['settledate_str'] = df_divi['settledate'].dt.strftime('%m/%d/%Y')
 
-        df_divi_sorted = df_divi.sort_values("settleDate", ascending=False)
-        df_divi_show = df_divi_sorted[["symbol", "settleDate_str", "currency", "amount"]].reset_index(drop=True)
+        # 2) Zoradíme zostupne podľa settledate
+        df_divi_sorted = df_divi.sort_values("settledate", ascending=False)
+        df_show = df_divi_sorted[["symbol","settledate_str","currency","amount"]].reset_index(drop=True)
 
-        # --- Rozloženie do stĺpcov
-        col1, col2 = st.columns([1.3, 2.7])  # Pomer šírok namiesto 1.3, 2.7
-
+        # 3) Layout do dvoch stĺpcov
+        col1, col2 = st.columns([1.3, 2.7])
         with col1:
-            st.dataframe(df_divi_show, height=200)
+            st.dataframe(df_show, height=300)
 
         with col2:
             tab1, tab2, tab3 = st.tabs(
-                ["Súhrn podľa roka", "Súhrn podľa mesiaca", "Súhrn podľa tickera"]
+                ["📅 Rok", "🗓️ Mesiac", "🔖 Ticker"]
             )
 
+            # ----- Tab 1: Stacked bar podľa roku a meny
             with tab1:
-                summary = df_divi.groupby(['Year', 'currency'])['amount'].sum().reset_index()
-                st.subheader("Summary by Year and Currency (Stacked Bar Chart)")
+                summary = (
+                    df_divi.groupby(['year','currency'])['amount']
+                    .sum().reset_index()
+                )
+                st.subheader("Summary by Year & Currency")
                 chart = alt.Chart(summary).mark_bar().encode(
-                    x=alt.X('Year:O', title='Year'),
+                    x=alt.X('year:O', title='Year'),
                     y=alt.Y('amount:Q', title='Sum of Dividends'),
                     color=alt.Color('currency:N', title='Currency'),
-                    tooltip=['Year', 'currency', 'amount']
+                    tooltip=['year','currency','amount']
                 ).properties(width=600)
                 st.altair_chart(chart, use_container_width=False)
 
+            # ----- Tab 2: mesačný prehľad so selectbox-om zarovnaným ku grafu
             with tab2:
-                st.subheader("Mesačný prehľad podľa roka")
+                st.subheader("Summary by Month & Currency")
                 width_px = 700
-
                 selected_year = st.selectbox(
-                    'Vyber rok:',
-                    sorted(df_divi['Year'].unique()),
-                    key="year_select"
+                    "Vyber rok:",
+                    options=sorted(df_divi['year'].unique()),
+                    key="sel_year"
                 )
-                st.markdown(
-                    f"""<style>
-                    div[data-baseweb="select"] > div {{
-                        width: {width_px}px !important;
-                    }}
-                    </style>""",
-                    unsafe_allow_html=True,
-                )
+                # hack na šírku selectboxu
+                st.markdown(f"""
+                    <style>
+                    div[data-baseweb="select"] > div {{ width: {width_px}px !important; }}
+                    </style>
+                """, unsafe_allow_html=True)
 
-                df_divi_year = df_divi[df_divi['Year'] == selected_year]
-                summary_month = (
-                    df_divi_year.groupby(['Month', 'currency'])['amount']
-                    .sum()
-                    .reset_index()
+                df_y = df_divi[df_divi['year']==selected_year]
+                summary_m = (
+                    df_y.groupby(['month','currency'])['amount']
+                    .sum().reset_index()
                 )
-                months_order = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                                'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-                summary_month['Month'] = pd.Categorical(summary_month['Month'], categories=months_order, ordered=True)
-                summary_month = summary_month.sort_values('Month')
+                order = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+                summary_m['month'] = pd.Categorical(summary_m['month'], categories=order, ordered=True)
+                summary_m = summary_m.sort_values('month')
 
-                st.subheader(f"Summary by Month and Currency ({selected_year})")
-                chart1 = alt.Chart(summary_month).mark_bar().encode(
-                    x=alt.X('Month:O', title='Month', sort=months_order),
-                    y=alt.Y('amount:Q', title='Sum of Dividends'),
-                    color=alt.Color('currency:N', title='Currency'),
-                    tooltip=['Month', 'currency', 'amount']
+                chart1 = alt.Chart(summary_m).mark_bar().encode(
+                    x=alt.X('month:O', sort=order, title='Month'),
+                    y=alt.Y('amount:Q', title='Sum'),
+                    color=alt.Color('currency:N'),
+                    tooltip=['month','currency','amount']
                 ).properties(width=width_px)
-
                 st.altair_chart(chart1, use_container_width=False)
 
+            # ----- Tab 3: výber tickerov (multiselect)
             with tab3:
-                st.subheader("Výber tickerov")
-                ticker_options = sorted(df_divi['symbol'].dropna().unique())
-                selected_tickers = st.multiselect(
-                    "Zvoľ jeden alebo viac tickerov:",
-                    options=ticker_options,
-                    default=ticker_options[:1],
-                    key="ticker_select"
-                )
-
-                if selected_tickers:
-                    df_divi_ticker = df_divi[df_divi['symbol'].isin(selected_tickers)]
-                    summary_ticker = (
-                        df_divi_ticker.groupby(['Year', 'symbol'])['amount']
-                        .sum()
-                        .reset_index()
-                    )
-                    st.subheader(f"Súhrn dividend podľa tickera a roka")
-                    chart2 = alt.Chart(summary_ticker).mark_bar().encode(
-                        x=alt.X('Year:O', title='Year'),
-                        y=alt.Y('amount:Q', title='Sum of Dividends'),
+                st.subheader("Summary by Ticker & Year")
+                tics = sorted(df_divi['symbol'].dropna().unique())
+                sel_t = st.multiselect("Zvoľ ticker(y):", options=tics, default=tics[:1], key="sel_t")
+                if sel_t:
+                    df_t = df_divi[df_divi['symbol'].isin(sel_t)]
+                    summ_t = df_t.groupby(['year','symbol'])['amount'].sum().reset_index()
+                    chart2 = alt.Chart(summ_t).mark_bar().encode(
+                        x=alt.X('year:O', title='Year'),
+                        y=alt.Y('amount:Q'),
                         color=alt.Color('symbol:N', title='Ticker'),
-                        tooltip=['Year', 'symbol', 'amount']
+                        tooltip=['year','symbol','amount']
                     ).properties(width=600)
                     st.altair_chart(chart2, use_container_width=False)
                 else:
-                    st.info("Vyber aspoň jeden ticker na zobrazenie grafu.")
+                    st.info("Vyber aspoň jeden ticker.")
 
+# --- STRÁNKA: Transactions
 elif page == "📈 Transactions":
-    st.header("📈 Transactions")
-    st.info("Tu môžeš neskôr doplniť grafy pre podrobnejšiu analýzu.")
+    st.header("Transactions overview")
+    if df_tx.empty:
+        st.warning("No transactions in the table.")
+    else:
+        st.dataframe(df_tx)
 
-elif page == "⚙️ Nastavenia":
-    st.header("⚙️ Nastavenia")
+# --- STRÁNKA: Nastavenia
+else:
+    st.header("Nastavenia")
     st.info("Tu budú konfiguračné možnosti aplikácie.")
