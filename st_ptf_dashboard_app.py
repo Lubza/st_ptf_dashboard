@@ -52,6 +52,13 @@ if page == "📊 Dividends Overview":
         df_divi['year']       = df_divi['settledate'].dt.year
         df_divi['settledate_str'] = df_divi['settledate'].dt.strftime('%m/%d/%Y')
 
+        #
+        # -- len záznamy za aktuálny mesiac (podľa settledate)
+        current_period = pd.Timestamp.today().to_period('M')  # napr. 2025-07
+        df_divi_cur = df_divi[df_divi['settledate'].dt.to_period('M') == current_period]
+
+        #
+
         # 2) Zoradíme zostupne podľa settledate
         df_divi_sorted = df_divi.sort_values("settledate", ascending=False)
         df_show = df_divi_sorted[["symbol","settledate_str","currency","amount"]].reset_index(drop=True)
