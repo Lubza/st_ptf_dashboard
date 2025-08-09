@@ -94,11 +94,13 @@ if page == "📊 Dividends Overview":
 
             # ----- Tab 2: mesačný prehľad so selectbox-om zarovnaným ku grafu
             with tab2:
-                st.subheader("Summary by Month & Currency")
+                st.subheader("Summary by Quarter & Currency")
                 width_px = 700
+                year_options = sorted(df_divi['year'].unique())
                 selected_year = st.selectbox(
                     "Vyber rok:",
-                    options=sorted(df_divi['year'].unique()),
+                    options=year_options,
+                    index=len(year_options) - 1,   # => posledný = najnovší rok
                     key="sel_year"
                 )
                 # hack na šírku selectboxu
@@ -108,20 +110,24 @@ if page == "📊 Dividends Overview":
                     </style>
                 """, unsafe_allow_html=True)
 
-                df_y = df_divi[df_divi['year']==selected_year]
-                summary_m = (
-                    df_y.groupby(['month','currency'])['amount']
-                    .sum().reset_index()
-                )
-                order = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-                summary_m['month'] = pd.Categorical(summary_m['month'], categories=order, ordered=True)
-                summary_m = summary_m.sort_values('month')
+                # Kvartalne zobrazenie
+                df_y = df_divi[df_divi['year'] == selected_year].copy()
+                df_y['quarter'] = 'Q' + df_y['settledate'].dt.quarter.astype(str)
 
-                chart1 = alt.Chart(summary_m).mark_bar().encode(
-                    x=alt.X('month:O', sort=order, title='Month'),
+                summary_q = (
+                    df_y.groupby(['quarter', 'currency'], as_index=False)['amount']
+                        .sum()
+                )
+
+                order_q = ['Q1', 'Q2', 'Q3', 'Q4']
+                summary_q['quarter'] = pd.Categorical(summary_q['quarter'], categories=order_q, ordered=True)
+                summary_q = summary_q.sort_values('quarter')
+
+                chart1 = alt.Chart(summary_q).mark_bar().encode(
+                    x=alt.X('quarter:O', sort=order_q, title='Quarter'),
                     y=alt.Y('amount:Q', title='Sum'),
-                    color=alt.Color('currency:N'),
-                    tooltip=['month','currency','amount']
+                    color=alt.Color('currency:N', title='Currency'),
+                    tooltip=['quarter', 'currency', 'amount']
                 ).properties(width=width_px)
                 st.altair_chart(chart1, use_container_width=False)
 
@@ -164,6 +170,7 @@ if page == "📊 Dividends Overview":
                 else:
                     st.info("Vyber aspoň jeden ticker.")
         with col2:
+            st.subheader("Current month dividends")
             if df_show.empty:
                 st.info(" V tomto mesiaci zatial nemas ziadne dividendy")
             else:
