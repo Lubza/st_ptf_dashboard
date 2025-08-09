@@ -60,8 +60,14 @@ if page == "📊 Dividends Overview":
         #
 
         # 2) Zoradíme zostupne podľa settledate
-        df_divi_sorted = df_divi.sort_values("settledate", ascending=False)
-        df_show = df_divi_sorted[["symbol","settledate_str","currency","amount"]].reset_index(drop=True)
+        #df_divi_sorted = df_divi.sort_values("settledate", ascending=False)
+        #df_show = df_divi_sorted[["symbol","settledate_str","currency","amount"]].reset_index(drop=True)
+
+        df_show = (
+            df_divi_cur.sort_values("settledate", ascending=False)
+                [["symbol", "settledate_str", "currency", "amount"]]
+                .reset_index(drop=True)
+        )
 
         # 3) Layout do dvoch stĺpcov
         col1, col2 = st.columns([2.7, 1.3])
@@ -158,7 +164,10 @@ if page == "📊 Dividends Overview":
                 else:
                     st.info("Vyber aspoň jeden ticker.")
         with col2:
-            st.dataframe(df_show, height=300)
+            if df_show.empty:
+                st.info(" V tomto mesiaci zatial nemas ziadne dividendy")
+            else:
+                st.dataframe(df_show, height=300)
             
 # --- STRÁNKA: Transactions
 elif page == "📈 Transactions":
