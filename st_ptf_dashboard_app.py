@@ -131,6 +131,47 @@ if page == "📊 Dividends Overview":
                 ).properties(width=width_px)
                 st.altair_chart(chart1, use_container_width=False)
 
+                # --- Quarter × Currency pivot table (reacts to selected_year)
+
+                q_order = ['Q1', 'Q2', 'Q3', 'Q4']
+
+                # summary_q má stĺpce: ['quarter', 'currency', 'amount']
+                pivot = (
+                    summary_q
+                    .assign(quarter=pd.Categorical(summary_q['quarter'], categories=q_order, ordered=True))
+                    .pivot_table(
+                        index='currency',          # riadky = meny
+                        columns='quarter',         # stĺpce = kvartály
+                        values='amount',
+                        aggfunc='sum',
+                        fill_value=0
+                    )
+                    .reindex(columns=q_order)      # udrž poradie Q1..Q4
+                )
+
+                # Row totals (po riadkoch)
+                pivot['Total'] = pivot.sum(axis=1)
+
+                # Column totals (po stĺpcoch) + grand total
+                total_row = pivot.sum(axis=0).to_frame().T
+                total_row.index = ['Total']
+
+                pivot = pd.concat([pivot, total_row], axis=0)
+
+                pivot.index.name = 'Currency'
+                pivot.columns.name = 'Quarter'
+
+                st.subheader(f"Quarter × Currency – {selected_year}")
+
+                # Pekné zobrazenie s formátovaním
+                num_cols = q_order + ['Total']
+                st.dataframe(
+                    pivot.reset_index(),
+                    use_container_width=True,
+                    height=min(380, 42 * (len(pivot) + 1)),
+                    column_config={c: st.column_config.NumberColumn(format="%.2f") for c in num_cols}
+                )
+
             # ----- Tab 3: výber tickerov (multiselect)
             with tab3:
                 st.subheader("Summary by Ticker & Year")
