@@ -127,6 +127,28 @@ if page == "📊 Dividends Overview":
                         tooltip=['year','symbol','amount']
                     ).properties(width=600)
                     st.altair_chart(chart2, use_container_width=False)
+                    # --- TABUĽKA pod grafom (agregácia cez všetky zvolené tickery)
+                    year_totals = (
+                        df_t.groupby('year', as_index=False)['amount']
+                        .sum()
+                    )
+
+                    # (voliteľné) medziročná zmena – ak ju chceš, nechaj nasledujúce 4 riadky
+                    tmp = year_totals.sort_values('year')        # vzostupne
+                    tmp['change'] = tmp['amount'].diff().fillna(0)
+                    year_totals = tmp.sort_values('year', ascending=False)
+
+                    st.markdown("#### Yearly totals for selected tickers")
+                    st.dataframe(
+                        year_totals.rename(columns={'year': 'Year', 'amount': 'Total', 'change': 'Change'}),
+                        use_container_width=False,
+                        height=min(320, 42 * (len(year_totals) + 1)),
+                        column_config={
+                            "Year":  st.column_config.NumberColumn(format="%d"),
+                            "Total": st.column_config.NumberColumn(format="%.2f"),
+                            "Change": st.column_config.NumberColumn(format="%.2f"),
+                        }
+                    )
                 else:
                     st.info("Vyber aspoň jeden ticker.")
         with col2:
