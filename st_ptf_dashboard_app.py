@@ -138,7 +138,6 @@ if page == "📊 Dividends Overview":
                     tmp['change'] = tmp['amount'].diff().fillna(0)
                     year_totals = tmp.sort_values('year', ascending=False)
 
-                    st.markdown("#### Yearly totals for selected tickers")
                     st.dataframe(
                         year_totals.rename(columns={'year': 'Year', 'amount': 'Total', 'change': 'Change'}),
                         use_container_width=False,
@@ -152,7 +151,22 @@ if page == "📊 Dividends Overview":
                 else:
                     st.info("Vyber aspoň jeden ticker.")
         with col2:
-            st.dataframe(df_show, height=300)
+            #st.dataframe(df_show, height=300)
+             # len záznamy za aktuálny mesiac
+            today_period = pd.Timestamp.today().to_period('M')       # napr. 2025-07
+            mask = df_divi['settledate'].dt.to_period('M') == today_period
+
+            df_month = (
+                df_divi.loc[mask, ["symbol", "settledate_str", "currency", "amount"]]
+                    .sort_values("settledate", ascending=False)
+                    .reset_index(drop=True)
+            )
+
+            st.caption(f"Záznamy za {pd.Timestamp.today().strftime('%B %Y')}")
+            if df_month.empty:
+                st.info("V tomto mesiaci zatiaľ nie sú žiadne dividendy.")
+            else:
+                st.dataframe(df_month, height=300)
 
 # --- STRÁNKA: Transactions
 elif page == "📈 Transactions":
