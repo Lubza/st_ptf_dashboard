@@ -74,7 +74,7 @@ if page == "📊 Dividends Overview":
 
         with col1:
             tab1, tab2, tab3 = st.tabs(
-                ["📅 Rok", "🗓️ Mesiac", "🔖 Ticker"]
+                ["📅 Rok", "🗓️ By Quarter", "🔖 Ticker"]
             )
 
             # ----- Tab 1: Stacked bar podľa roku a meny
@@ -135,27 +135,17 @@ if page == "📊 Dividends Overview":
 
                 q_order = ['Q1', 'Q2', 'Q3', 'Q4']
 
-                # summary_q má stĺpce: ['quarter', 'currency', 'amount']
                 pivot = (
                     summary_q
                     .assign(quarter=pd.Categorical(summary_q['quarter'], categories=q_order, ordered=True))
-                    .pivot_table(
-                        index='currency',          # riadky = meny
-                        columns='quarter',         # stĺpce = kvartály
-                        values='amount',
-                        aggfunc='sum',
-                        fill_value=0
-                    )
-                    .reindex(columns=q_order)      # udrž poradie Q1..Q4
+                    .pivot_table(index='currency', columns='quarter', values='amount', aggfunc='sum', fill_value=0)
+                    .reindex(columns=q_order)
                 )
 
-                # Row totals (po riadkoch)
+                # totals
                 pivot['Total'] = pivot.sum(axis=1)
-
-                # Column totals (po stĺpcoch) + grand total
                 total_row = pivot.sum(axis=0).to_frame().T
                 total_row.index = ['Total']
-
                 pivot = pd.concat([pivot, total_row], axis=0)
 
                 pivot.index.name = 'Currency'
@@ -163,13 +153,18 @@ if page == "📊 Dividends Overview":
 
                 st.subheader(f"Quarter × Currency – {selected_year}")
 
-                # Pekné zobrazenie s formátovaním
-                num_cols = q_order + ['Total']
+                # -> tu je kľúčové: rovnaká šírka ako selectbox/graf a skrytý index
+                display_df = pivot.reset_index()
+
                 st.dataframe(
-                    pivot.reset_index(),
-                    use_container_width=True,
-                    height=min(380, 42 * (len(pivot) + 1)),
-                    column_config={c: st.column_config.NumberColumn(format="%.2f") for c in num_cols}
+                    display_df,
+                    width=width_px,                  # rovnaké ako pri selectboxe/grafe
+                    use_container_width=False,
+                    hide_index=True,                 # skryje 0/1/2/3
+                    height=min(380, 42 * (len(display_df) + 1)),
+                    column_config={
+                        **{c: st.column_config.NumberColumn(format="%.2f") for c in q_order + ['Total']}
+                    }
                 )
 
             # ----- Tab 3: výber tickerov (multiselect)
