@@ -57,11 +57,9 @@ if page == "📊 Dividends Overview":
         df_show = df_divi_sorted[["symbol","settledate_str","currency","amount"]].reset_index(drop=True)
 
         # 3) Layout do dvoch stĺpcov
-        col1, col2 = st.columns([1.3, 2.7])
-        with col1:
-            st.dataframe(df_show, height=300)
+        col1, col2 = st.columns([2.7, 1.3])
 
-        with col2:
+        with col1:
             tab1, tab2, tab3 = st.tabs(
                 ["📅 Rok", "🗓️ Mesiac", "🔖 Ticker"]
             )
@@ -131,6 +129,8 @@ if page == "📊 Dividends Overview":
                     st.altair_chart(chart2, use_container_width=False)
                 else:
                     st.info("Vyber aspoň jeden ticker.")
+        with col2:
+            st.dataframe(df_show, height=300)
 
 # --- STRÁNKA: Transactions
 elif page == "📈 Transactions":
