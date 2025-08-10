@@ -128,8 +128,8 @@ if page == "📊 Dividends Overview":
                     df_divi
                     .groupby(['currency', 'year'])['amount']
                     .sum()
-                    .unstack('year', fill_value=0)          # stĺpce = roky
-                    .reindex(columns=years)                 # isté poradie rokov
+                    .unstack('currency', fill_value=0)          # stĺpce = roky
+                    .reindex(columns='currency')                 # isté poradie rokov
                 )
 
                 # stĺpcový Total
