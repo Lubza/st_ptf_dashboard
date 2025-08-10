@@ -117,6 +117,43 @@ if page == "📊 Dividends Overview":
                     tooltip=['year','currency','amount']
                 ).properties(width=600)
                 st.altair_chart(chart, use_container_width=False)
+                #
+                 # === OVERVIEW TABLE: Currency (rows) × Years (columns) + totals ===
+                st.subheader("Overview by currency")
+
+                # roky zoradené vzostupne (stĺpce)
+                years = sorted(df_divi['year'].unique())
+
+                pivot = (
+                    df_divi
+                    .groupby(['currency', 'year'])['amount']
+                    .sum()
+                    .unstack('year', fill_value=0)          # stĺpce = roky
+                    .reindex(columns=years)                 # isté poradie rokov
+                )
+
+                # stĺpcový Total
+                pivot['Total'] = pivot.sum(axis=1)
+
+                # riadkový Total
+                total_row = pivot.sum(axis=0).to_frame().T
+                total_row.index = ['Total']
+                overview = pd.concat([pivot, total_row], axis=0)
+
+                # pekné hlavičky + bez indexového stĺpca
+                overview = overview.reset_index().rename(columns={'currency': 'Currency'})
+
+                # render – nech to vyplní šírku stĺpca pod grafom
+                st.dataframe(
+                    overview,
+                    hide_index=True,
+                    use_container_width=True,
+                    column_config={
+                        **{str(y): st.column_config.NumberColumn(format="%.2f") for y in years},
+                        "Total": st.column_config.NumberColumn(format="%.2f"),
+                    }
+                )
+                #
 
             # ----- Tab 2: mesačný prehľad so selectbox-om zarovnaným ku grafu
             with tab2:
