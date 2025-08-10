@@ -146,9 +146,9 @@ if page == "📊 Dividends Overview":
 
                 # totals
                 pivot_y['Total'] = pivot_y.sum(axis=1)
-                #total_row1 = pivot_y.sum(axis=0).to_frame().T
-                #total_row1.index = ['Total']
-                #pivot_y = pd.concat([pivot_y, total_row1], axis=0)
+                total_row1 = pivot_y.sum(axis=0).to_frame().T
+                total_row1.index = ['Total']
+                pivot_y = pd.concat([pivot_y, total_row1], axis=0)
 
                 pivot_y.index.name = 'Currency'
                 pivot_y.columns.name = 'Year'
