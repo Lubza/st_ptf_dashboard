@@ -122,53 +122,58 @@ if page == "📊 Dividends Overview":
                 ).properties(width=600)
                 st.altair_chart(chart, use_container_width=False)
                 #
-                 # === OVERVIEW TABLE: Currency (rows) × Years (columns) + totals ===
-                st.subheader("Overview by currency")
+                # === YEAR × CURRENCY (rows = currencies, columns = years) + totals ===
+                st.subheader("Year × Currency")
 
-                # pivot s rokmi v riadkoch a menami v stĺpcoch
-                pivot = (
-                    df_divi.groupby(['year', 'currency'])['amount']
-                    .sum()
-                    .unstack('currency', fill_value=0)
-                    .sort_index()
+                width_px = 700  # rovnaká šírka ako pri quarterly tabuľke/grafe
+
+                summary_y = (
+                    df_divi.groupby(['year', 'currency'], as_index=False)['amount']
+                        .sum()
                 )
 
-                # poradie mien
-                currency_order = ['USD', 'EUR', 'GBP', 'CAD']
-                existing_cols = [c for c in currency_order if c in pivot.columns]
-                other_cols    = [c for c in pivot.columns if c not in existing_cols]
-                pivot = pivot[existing_cols + other_cols]
+                # pivot: meny v riadkoch, roky v stĺpcoch
+                pivot_y = (
+                    summary_y.pivot_table(
+                        index='currency', columns='year', values='amount',
+                        aggfunc='sum', fill_value=0
+                    )
+                )
 
-                # stĺpcový Total (po menách)
-                pivot['Total'] = pivot.sum(axis=1)
+                # zoradenie stĺpcov podľa roku
+                year_cols = sorted(pivot_y.columns.tolist())
+                pivot_y = pivot_y.reindex(columns=year_cols)
 
-                # riadkový Total (po rokoch)
-                total_row = pivot.sum(axis=0).to_frame().T
+                # totals
+                pivot_y['Total'] = pivot_y.sum(axis=1)
+                total_row = pivot_y.sum(axis=0).to_frame().T
                 total_row.index = ['Total']
+                pivot_y = pd.concat([pivot_y, total_row], axis=0)
 
-                overview = pd.concat([pivot, total_row], axis=0)
+                pivot_y.index.name = 'Currency'
+                pivot_y.columns.name = 'Year'
 
-                # stĺpec Year z indexu + žiadny „index“ v tabuľke
-                overview.index.name = 'Year'
-                overview = overview.reset_index()
+                # zobrazenie – rovnaké nastavenia ako pri Quarter × Currency
+                display_df = pivot_y.reset_index()
 
-                # --- dôležité: typy nech sú číselné, nie stringy
-                num_cols = [c for c in overview.columns if c != 'Year']
-                overview[num_cols] = (
-                    overview[num_cols]
-                    .apply(pd.to_numeric, errors='coerce')  # všetko na čísla
-                    .round(0)                               # zaokrúhli na celé
-                    .astype('Int64')                        # ostane číselné (zachová aj NaN)
+                # dôležité: nech to zostane číselné (žiadne ⚠️) a zaokrúhlené na celé
+                num_cols = [c for c in display_df.columns if c not in ('Currency',)]
+                display_df[num_cols] = (
+                    display_df[num_cols]
+                    .apply(pd.to_numeric, errors='coerce')
+                    .round(0)
+                    .astype('Int64')
                 )
 
-                # zobrazenie s formátovaním (tisícky, bez desatinných)
                 st.dataframe(
-                    overview,
-                    use_container_width=True,
+                    display_df,
+                    width=width_px,
+                    use_container_width=False,
                     hide_index=True,
+                    height=min(420, 42 * (len(display_df) + 1)),
                     column_config={
-                        "Year": st.column_config.TextColumn(),
-                        **{c: st.column_config.NumberColumn(format="%,d") for c in num_cols}
+                        "Currency": st.column_config.TextColumn(),
+                        **{c: st.column_config.NumberColumn(format="%,d") for c in num_cols}  # tisícky, bez desatinných
                     }
                 )
                 #
