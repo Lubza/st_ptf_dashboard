@@ -152,25 +152,21 @@ if page == "📊 Dividends Overview":
                 overview.index.name = 'Year'
                 overview = overview.reset_index()          # spraví stĺpec Year a odstráni index
                                                             # -> už nebude "index" ani žltý trojuholník
-
-                # Roky bez .00 (a necháme "Total" ako text)
-                y_num = pd.to_numeric(overview['Year'], errors='coerce')
-                overview.loc[y_num.notna(), 'Year'] = y_num.dropna().astype(int).astype(str)
-                overview.loc[y_num.isna(),   'Year'] = overview.loc[y_num.isna(), 'Year'].astype(str)
-
-                # Tisícové oddeľovače v číselných stĺpcoch
+                #
+                # zabezpeč číselné typy + zaokrúhlenie na celé
                 num_cols = [c for c in overview.columns if c != 'Year']
-                col_cfg = {
-                    "Year": st.column_config.TextColumn(),
-                    **{c: st.column_config.NumberColumn(format="%,.2f") for c in num_cols}
-                }
+                overview[num_cols] = overview[num_cols].apply(pd.to_numeric, errors='coerce').fillna(0).round(0)
 
+                # formát: tisícové oddeľovače a bez desatinnej časti
                 st.dataframe(
                     overview,
-                    width=chart_width,            # rovnaké zarovnanie so šírkou grafu
+                    width=700,
                     use_container_width=False,
                     hide_index=True,
-                    column_config=col_cfg
+                    column_config={
+                        "Year": st.column_config.TextColumn(),
+                        **{c: st.column_config.NumberColumn(format="%,.0f") for c in num_cols}
+                    }
                 )
                 #
 
