@@ -105,6 +105,8 @@ if page == "📊 Dividends Overview":
 
             # ----- Tab 1: Stacked bar podľa roku a meny
             with tab1:
+                # ---- graf
+                chart_width = 700  # rovnaká šírka pre graf aj tabuľku
                 summary = (
                     df_divi.groupby(['year','currency'])['amount']
                     .sum().reset_index()
@@ -121,37 +123,52 @@ if page == "📊 Dividends Overview":
                  # === OVERVIEW TABLE: Currency (rows) × Years (columns) + totals ===
                 st.subheader("Overview by currency")
 
-                # roky zoradené vzostupne (stĺpce)
-                years = sorted(df_divi['year'].unique())
-
+                # pivot s rokmi v riadkoch a menami v stĺpcoch
                 pivot = (
-                    df_divi
-                    .groupby(['currency', 'year'])['amount']
+                    df_divi.groupby(['year', 'currency'])['amount']
                     .sum()
-                    .unstack('currency', fill_value=0)          # stĺpce = roky
-                    .reindex(columns='currency')                 # isté poradie rokov
+                    .unstack('currency', fill_value=0)   # columns = currency
+                    .sort_index()                        # roky vzostupne
                 )
 
-                # stĺpcový Total
+                # voliteľné: poradie mien v stĺpcoch
+                currency_order = ['CAD', 'EUR', 'GBP', 'USD']
+                existing_cols = [c for c in currency_order if c in pivot.columns]
+                other_cols    = [c for c in pivot.columns if c not in existing_cols]
+                pivot = pivot[existing_cols + other_cols]
+
+                # stĺpcový Total (po menách)
                 pivot['Total'] = pivot.sum(axis=1)
 
-                # riadkový Total
+                # riadkový Total (po rokoch)
                 total_row = pivot.sum(axis=0).to_frame().T
                 total_row.index = ['Total']
+
                 overview = pd.concat([pivot, total_row], axis=0)
 
-                # pekné hlavičky + bez indexového stĺpca
-                overview = overview.reset_index().rename(columns={'currency': 'Currency'})
+                # overview: po tvojom concat-e pivot + total_row
+                overview.index.name = 'Year'
+                overview = overview.reset_index()          # spraví stĺpec Year a odstráni index
+                                                            # -> už nebude "index" ani žltý trojuholník
 
-                # render – nech to vyplní šírku stĺpca pod grafom
+                # Roky bez .00 (a necháme "Total" ako text)
+                y_num = pd.to_numeric(overview['Year'], errors='coerce')
+                overview.loc[y_num.notna(), 'Year'] = y_num.dropna().astype(int).astype(str)
+                overview.loc[y_num.isna(),   'Year'] = overview.loc[y_num.isna(), 'Year'].astype(str)
+
+                # Tisícové oddeľovače v číselných stĺpcoch
+                num_cols = [c for c in overview.columns if c != 'Year']
+                col_cfg = {
+                    "Year": st.column_config.TextColumn(),
+                    **{c: st.column_config.NumberColumn(format="%,.2f") for c in num_cols}
+                }
+
                 st.dataframe(
                     overview,
+                    width=chart_width,            # rovnaké zarovnanie so šírkou grafu
+                    use_container_width=False,
                     hide_index=True,
-                    use_container_width=True,
-                    column_config={
-                        **{str(y): st.column_config.NumberColumn(format="%.2f") for y in years},
-                        "Total": st.column_config.NumberColumn(format="%.2f"),
-                    }
+                    column_config=col_cfg
                 )
                 #
 
