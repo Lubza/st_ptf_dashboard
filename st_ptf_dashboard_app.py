@@ -135,7 +135,7 @@ if page == "📊 Dividends Overview":
                 # pivot: meny v riadkoch, roky v stĺpcoch
                 pivot_y = (
                     summary_y.pivot_table(
-                        index='year', columns='currency', values='amount',
+                        index='currency', columns='year', values='amount',
                         aggfunc='sum', fill_value=0
                     )
                 )
