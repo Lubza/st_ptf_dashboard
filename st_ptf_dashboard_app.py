@@ -38,6 +38,8 @@ def load_transactions() -> pd.DataFrame:
 df_divi = load_dividends()
 df_tx   = load_transactions()
 
+df_divi["amount"] = pd.to_numeric(df_divi["amount"], errors="coerce").fillna(0)
+
 # --- jednotné mená stĺpcov v tx (kvôli jednoduchšiemu spracovaniu)
 df_tx.columns = [c.lower() for c in df_tx.columns]
 
