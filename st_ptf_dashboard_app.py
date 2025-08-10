@@ -42,15 +42,27 @@ df_tx   = load_transactions()
 df_tx.columns = [c.lower() for c in df_tx.columns]
 
 # Čo chceme premapovať (podľa potreby sem vieš dopĺňať ďalšie páry)
-TICKER_FIX = {"VNA": "VNA.DE"}
+TICKER_FIX = {"VNA": "VNA.DE",
+              "VNA.DIV": "VNA.DE",
+              "VNA.DRTS": "VNA.DE",
+              "VNA.DVD": "VNA.DE",
+              "VNA.DVRTS": "VNA.DE",
+              "DIC.DIV": "BRNK.DE",
+              "DIC.DIV": "BRNK.DE",
+              "BRNK": "BRNK.DE",
+              "LI": "LI.PA",
+              "RWE": "RWE.DE",
+              "BYG": "BYG.L",
+              "TKA": "TKA.DE",
+              "TUI1": "TUI1.DE",}
 
 # 1) Dividendy – premenovať symbol
 if "symbol" in df_divi.columns:
     df_divi["symbol"] = df_divi["symbol"].replace(TICKER_FIX)
 
 # 2) Transactions – premenovať underlying symbol
-if "UnderlyingSymbol" in df_tx.columns:
-    df_tx["UnderlyingSymbol"] = df_tx["UnderlyingSymbol"].replace(TICKER_FIX)
+if "underlyingsymbol" in df_tx.columns:
+    df_tx["underlyingsymbol"] = df_tx["underlyingsymbol"].replace(TICKER_FIX)
 
 # --- STRÁNKA: Dividends Overview
 if page == "📊 Dividends Overview":
