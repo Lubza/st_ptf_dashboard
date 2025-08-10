@@ -129,12 +129,12 @@ if page == "📊 Dividends Overview":
                 pivot = (
                     df_divi.groupby(['year', 'currency'])['amount']
                     .sum()
-                    .unstack('currency', fill_value=0)   # columns = currency
-                    .sort_index()                        # roky vzostupne
+                    .unstack('currency', fill_value=0)
+                    .sort_index()
                 )
 
-                # voliteľné: poradie mien v stĺpcoch
-                currency_order = ['CAD', 'EUR', 'GBP', 'USD']
+                # poradie mien
+                currency_order = ['USD', 'EUR', 'GBP', 'CAD']
                 existing_cols = [c for c in currency_order if c in pivot.columns]
                 other_cols    = [c for c in pivot.columns if c not in existing_cols]
                 pivot = pivot[existing_cols + other_cols]
@@ -148,24 +148,27 @@ if page == "📊 Dividends Overview":
 
                 overview = pd.concat([pivot, total_row], axis=0)
 
-                # overview: po tvojom concat-e pivot + total_row
+                # stĺpec Year z indexu + žiadny „index“ v tabuľke
                 overview.index.name = 'Year'
-                overview = overview.reset_index()          # spraví stĺpec Year a odstráni index
-                                                            # -> už nebude "index" ani žltý trojuholník
-                #
-                # zabezpeč číselné typy + zaokrúhlenie na celé
-                num_cols = [c for c in overview.columns if c != 'Year']
-                overview[num_cols] = overview[num_cols].apply(pd.to_numeric, errors='coerce').fillna(0).round(0)
+                overview = overview.reset_index()
 
-                # formát: tisícové oddeľovače a bez desatinnej časti
+                # --- dôležité: typy nech sú číselné, nie stringy
+                num_cols = [c for c in overview.columns if c != 'Year']
+                overview[num_cols] = (
+                    overview[num_cols]
+                    .apply(pd.to_numeric, errors='coerce')  # všetko na čísla
+                    .round(0)                               # zaokrúhli na celé
+                    .astype('Int64')                        # ostane číselné (zachová aj NaN)
+                )
+
+                # zobrazenie s formátovaním (tisícky, bez desatinných)
                 st.dataframe(
                     overview,
-                    width=700,
-                    use_container_width=False,
+                    use_container_width=True,
                     hide_index=True,
                     column_config={
                         "Year": st.column_config.TextColumn(),
-                        **{c: st.column_config.NumberColumn(format="%,.0f") for c in num_cols}
+                        **{c: st.column_config.NumberColumn(format="%,d") for c in num_cols}
                     }
                 )
                 #
