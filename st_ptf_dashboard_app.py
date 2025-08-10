@@ -122,10 +122,10 @@ if page == "📊 Dividends Overview":
                 ).properties(width=600)
                 st.altair_chart(chart, use_container_width=False)
                 #
-                # === YEAR × CURRENCY (rows = currencies, columns = years) + totals ===
+                # === YEAR × CURRENCY (rows = currencies, columns = years) — BEZ stĺpca Total ===
                 st.subheader("Year × Currency")
 
-                width_px = 700  # rovnaká šírka ako pri quarterly tabuľke/grafe
+                width_px = 700
 
                 summary_y = (
                     df_divi.groupby(['year', 'currency'], as_index=False)['amount']
@@ -133,34 +133,33 @@ if page == "📊 Dividends Overview":
                 )
 
                 # pivot: meny v riadkoch, roky v stĺpcoch
-                pivot_y = (
-                    summary_y.pivot_table(
-                        index='currency', columns='year', values='amount',
-                        aggfunc='sum', fill_value=0
-                    )
+                pivot_y = summary_y.pivot_table(
+                    index='currency', columns='year', values='amount',
+                    aggfunc='sum', fill_value=0
                 )
 
-                # zoradenie stĺpcov podľa roku
+                # zoradenie rokov
                 year_cols = sorted(pivot_y.columns.tolist())
                 pivot_y = pivot_y.reindex(columns=year_cols)
 
-                # totals
-                pivot_y['Total'] = pivot_y.sum(axis=1)
-                total_row1 = pivot_y.sum(axis=0).to_frame().T
-                total_row1.index = ['Total']
-                pivot_y = pd.concat([pivot_y, total_row1], axis=0)
+                # spodný riadok „Total“ (súčet za všetky meny) — len cez roky, BEZ stĺpca Total
+                row_total = pivot_y[year_cols].sum().to_frame().T
+                row_total.index = ['Total']
+
+                pivot_y = pd.concat([pivot_y, row_total], axis=0)
 
                 pivot_y.index.name = 'Currency'
                 pivot_y.columns.name = 'Year'
 
-                # zobrazenie – rovnaké nastavenia ako pri Quarter × Currency
+                # zobrazenie
                 display_df = pivot_y.reset_index()
 
-                # dôležité: nech to zostane číselné (žiadne ⚠️) a zaokrúhlené na celé
-                num_cols = [c for c in display_df.columns if c not in ('Currency',)]
+                # číselné typy (bez ⚠️)
+                num_cols = [c for c in display_df.columns if c != 'Currency']
                 display_df[num_cols] = (
                     display_df[num_cols]
                     .apply(pd.to_numeric, errors='coerce')
+                    .fillna(0)
                     .round(0)
                     .astype('Int64')
                 )
@@ -173,10 +172,9 @@ if page == "📊 Dividends Overview":
                     height=min(420, 42 * (len(display_df) + 1)),
                     column_config={
                         "Currency": st.column_config.TextColumn(),
-                        **{c: st.column_config.NumberColumn(format="%,d") for c in num_cols}  # tisícky, bez desatinných
+                        **{c: st.column_config.NumberColumn(format="%,d") for c in num_cols}
                     }
                 )
-                #
 
             # ----- Tab 2: mesačný prehľad so selectbox-om zarovnaným ku grafu
             with tab2:
