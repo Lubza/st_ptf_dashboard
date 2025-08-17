@@ -294,7 +294,7 @@ if page == "📊 Dividends Overview":
             if df_show.empty:
                 st.info(" V tomto mesiaci zatial nemas ziadne dividendy")
             else:
-                st.dataframe(df_show, height=300)
+                st.dataframe(df_show, height=260)
             #
             st.divider()
             st.subheader("Top 5 dividends by ticker (All-time)")
