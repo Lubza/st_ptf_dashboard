@@ -323,7 +323,7 @@ if page == "📊 Dividends Overview":
                     height=260,
                     column_config={
                         "Ticker": st.column_config.TextColumn(),
-                        "Total":  st.column_config.NumberColumn(format="%,.0f"),
+                        "Total":  st.column_config.NumberColumn(format="%,d"),
                     },
                 )
             #
