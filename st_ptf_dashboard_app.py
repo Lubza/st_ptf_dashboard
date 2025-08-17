@@ -302,19 +302,27 @@ if page == "📊 Dividends Overview":
             if df_divi.empty:
                 st.info("Zatiaľ tu nemáš žiadne dividendy.")
             else:
-                # make sure the column is numeric
-                df_divi["amount"] = pd.to_numeric(df_divi["amount"], errors="coerce")
-                
+                import numpy as np
+
+                df = df_divi[["symbol", "amount"]].copy()
+
+                # Clean data to avoid warnings
+                df["amount"] = pd.to_numeric(df["amount"], errors="coerce")
+                df.replace([np.inf, -np.inf], np.nan, inplace=True)
+                df.dropna(subset=["symbol", "amount"], inplace=True)  # remove rows that would create warning triangles
+                df["symbol"] = df["symbol"].astype(str).str.strip()
+
                 all_time = (
-                    df_divi.groupby("symbol", as_index=False)
-                        .agg(Total=("amount", "sum"))
-                        .sort_values("Total", ascending=False)
-                        .head(5)
-                        .rename(columns={"symbol": "Ticker"})
-                        .reset_index(drop=True)
+                    df.groupby("symbol", as_index=False)
+                    .agg(Total=("amount", "sum"))
+                    .sort_values("Total", ascending=False)
+                    .head(5)
+                    .rename(columns={"symbol": "Ticker"})
+                    .reset_index(drop=True)
                 )
 
-                all_time["Total"] = all_time["Total"].round(0).astype("Int64")
+                # Use plain int to avoid pandas' nullable <NA>
+                all_time["Total"] = all_time["Total"].round(0).astype(int)
 
                 st.dataframe(
                     all_time,
