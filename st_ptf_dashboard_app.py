@@ -295,6 +295,31 @@ if page == "📊 Dividends Overview":
                 st.info(" V tomto mesiaci zatial nemas ziadne dividendy")
             else:
                 st.dataframe(df_show, height=300)
+            #
+            st.divider()
+            st.subheader("Top 5 dividends by ticker (All-time)")
+
+            if df_divi.empty:
+                st.info("Zatiaľ tu nemáš žiadne dividendy.")
+            else:
+                all_time = (
+                    df_divi.groupby("symbol", as_index=False)["amount"]
+                           .sum()
+                           .sort_values("amount", ascending=False)
+                           .head(5)
+                )
+
+                st.dataframe(
+                    all_time.rename(columns={"symbol": "Ticker", "amount": "Total"}),
+                    use_container_width=True,
+                    hide_index=True,
+                    height=260,
+                    column_config={
+                        "Ticker": st.column_config.TextColumn(),
+                        "Total":  st.column_config.NumberColumn(format="%,d"),
+                    },
+                )
+            #
             
 # --- STRÁNKA: Transactions
 elif page == "📈 Transactions":
