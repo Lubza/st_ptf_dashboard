@@ -270,7 +270,7 @@ if page == "📊 Dividends Overview":
             if df_show.empty:
                 st.info(" V tomto mesiaci zatiaľ nemáš žiadne dividendy")
             else:
-                st.dataframe(df_show, height=RIGHT_TABLE_H, use_container_width=True)
+                st.dataframe(df_show.set_index("symbol"), height=RIGHT_TABLE_H, use_container_width=True)
 
             st.divider()
             st.subheader("Top 5 dividends by ticker (All-time)")
