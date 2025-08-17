@@ -322,7 +322,7 @@ if page == "📊 Dividends Overview":
                 )
 
                 # Use plain int to avoid pandas' nullable <NA>
-                all_time["Total"] = all_time["Total"].round(0).astype(int)
+                all_time["Total"] = all_time["Total"].astype(float)
 
                 st.dataframe(
                     all_time,
@@ -331,7 +331,7 @@ if page == "📊 Dividends Overview":
                     height=260,
                     column_config={
                         "Ticker": st.column_config.TextColumn(),
-                        "Total":  st.column_config.NumberColumn(format="%,d"),
+                        "Total":  st.column_config.NumberColumn(format="%.0f"),
                     },
                 )
             #
