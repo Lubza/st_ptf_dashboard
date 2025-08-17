@@ -302,21 +302,28 @@ if page == "📊 Dividends Overview":
             if df_divi.empty:
                 st.info("Zatiaľ tu nemáš žiadne dividendy.")
             else:
+                # make sure the column is numeric
+                df_divi["amount"] = pd.to_numeric(df_divi["amount"], errors="coerce")
+                
                 all_time = (
-                    df_divi.groupby("symbol", as_index=False)["amount"]
-                           .sum()
-                           .sort_values("amount", ascending=False)
-                           .head(5)
+                    df_divi.groupby("symbol", as_index=False)
+                        .agg(Total=("amount", "sum"))
+                        .sort_values("Total", ascending=False)
+                        .head(5)
+                        .rename(columns={"symbol": "Ticker"})
+                        .reset_index(drop=True)
                 )
 
+                all_time["Total"] = all_time["Total"].round(0).astype("Int64")
+
                 st.dataframe(
-                    all_time.rename(columns={"symbol": "Ticker", "amount": "Total"}),
+                    all_time,
                     use_container_width=True,
                     hide_index=True,
                     height=260,
                     column_config={
                         "Ticker": st.column_config.TextColumn(),
-                        "Total":  st.column_config.NumberColumn(format="%,d"),
+                        "Total":  st.column_config.NumberColumn(format="%,.0f"),
                     },
                 )
             #
