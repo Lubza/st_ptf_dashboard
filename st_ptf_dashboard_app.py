@@ -21,7 +21,7 @@ TABLE_TRANSACTIONS   = st.secrets["TABLE_TRANSACTIONS"]
 st.sidebar.title("📂 Navigácia")
 page = st.sidebar.radio(
     "Choď na stránku:",
-    ["📊 Dividends Overview", "📈 Transactions", "⚙️ Nastavenia"]
+    ["📊 Dividends Overview", "📈 Transactions", "Open option positions", "⚙️ Nastavenia"]
 )
 st.sidebar.markdown("---")
 st.sidebar.info("Tu môžeš pridať ďalšie sekcie alebo filter.")
@@ -57,10 +57,8 @@ TICKER_FIX = {
     "DIC": "BRNK.DE", "DIC.DIV": "BRNK.DE", "BRNK": "BRNK.DE",
     "LI": "LI.PA", "RWE": "RWE.DE", "BYG": "BYG.L", "TKA": "TKA.DE", "TUI1": "TUI1.DE",
 }
-
 if "symbol" in df_divi.columns:
     df_divi["symbol"] = df_divi["symbol"].replace(TICKER_FIX)
-
 if "underlyingsymbol" in df_tx.columns:
     df_tx["underlyingsymbol"] = df_tx["underlyingsymbol"].replace(TICKER_FIX)
 
@@ -130,7 +128,6 @@ if page == "📊 Dividends Overview":
                 pivot_y.columns.name = 'Year'
                 display_df = pivot_y.reset_index()
 
-                # číselné typy bez <NA> a bez varovaní
                 num_cols = [c for c in display_df.columns if c != 'Currency']
                 display_df[num_cols] = (
                     display_df[num_cols]
@@ -142,7 +139,7 @@ if page == "📊 Dividends Overview":
 
                 st.dataframe(
                     display_df,
-                    width=CHART_WIDTH_LEFT,        # presne ako graf
+                    width=CHART_WIDTH_LEFT,
                     use_container_width=False,
                     hide_index=True,
                     height=min(420, 42 * (len(display_df) + 1)),
@@ -162,7 +159,6 @@ if page == "📊 Dividends Overview":
                     index=len(year_options) - 1,
                     key="sel_year"
                 )
-                # roztiahnuť selectbox na šírku grafu/tabuľky
                 st.markdown(f"""
                     <style>
                     div[data-baseweb="select"] > div {{ width: {CHART_WIDTH_TAB2}px !important; }}
@@ -191,7 +187,6 @@ if page == "📊 Dividends Overview":
                 )
                 st.altair_chart(chart1, use_container_width=False)
 
-                # pivot (rovnaká šírka)
                 pivot = (
                     summary_q
                     .assign(quarter=pd.Categorical(summary_q['quarter'], categories=order_q, ordered=True))
@@ -244,7 +239,6 @@ if page == "📊 Dividends Overview":
                     )
                     st.altair_chart(chart2, use_container_width=False)
 
-                    # tabuľka pod grafom v rovnakej šírke
                     year_totals = df_t.groupby('year', as_index=False)['amount'].sum()
                     tmp = year_totals.sort_values('year')
                     tmp['change'] = tmp['amount'].diff().fillna(0)
@@ -293,12 +287,11 @@ if page == "📊 Dividends Overview":
                     .reset_index(drop=True)
                 )
 
-                # zobraz ako číslo bez desatinných miest (bez varovaní)
                 all_time["Total"] = all_time["Total"].astype(float)
 
                 st.dataframe(
                     all_time,
-                    use_container_width=True,   # rovnaká šírka ako tabuľka nad tým
+                    use_container_width=True,
                     hide_index=True,
                     height=RIGHT_TABLE_H,
                     column_config={
@@ -314,6 +307,63 @@ elif page == "📈 Transactions":
         st.warning("No transactions in the table.")
     else:
         st.dataframe(df_tx)
+
+# --- STRÁNKA: Open option positions (len net-otvorené opcie)
+elif page == "Open option positions":
+    st.header("Open option positions")
+
+    if df_tx.empty:
+        st.warning("No transactions in the table.")
+    else:
+        required = {"assetclass", "symbol", "quantity"}
+        missing = required - set(df_tx.columns)
+        if missing:
+            st.error(f"Missing columns in transactions table: {', '.join(sorted(missing))}")
+        else:
+            df_opt = df_tx.copy()
+
+            # len opcie
+            df_opt["assetclass"] = df_opt["assetclass"].astype(str)
+            df_opt = df_opt[df_opt["assetclass"].str.upper() == "OPT"]
+
+            # numerická quantity
+            df_opt["quantity"] = pd.to_numeric(df_opt["quantity"], errors="coerce").fillna(0.0)
+
+            # agregácia na symbol
+            open_pos = (
+                df_opt.groupby("symbol", as_index=False)["quantity"]
+                .sum()
+                .rename(columns={"quantity": "net_quantity"})
+            )
+
+            # odstrániť čistú nulu (s toleranciou)
+            open_pos = open_pos[open_pos["net_quantity"].round(8) != 0]
+
+            # voliteľné meta stĺpce (prvý nenull záznam na symbol)
+            possible_meta = ["underlyingsymbol", "expiry", "strike", "right", "multiplier", "currency"]
+            meta_cols = [c for c in possible_meta if c in df_opt.columns]
+            if meta_cols:
+                meta = (
+                    df_opt.groupby("symbol", as_index=False)[meta_cols]
+                    .agg(lambda s: s.dropna().iloc[0] if s.dropna().size else None)
+                )
+                open_pos = open_pos.merge(meta, on="symbol", how="left")
+
+            # zoradiť podľa absolútnej veľkosti
+            open_pos = open_pos.sort_values("net_quantity", key=lambda s: s.abs(), ascending=False)
+
+            if open_pos.empty:
+                st.success("Žiadne otvorené opčné pozície (netto = 0).")
+            else:
+                st.dataframe(
+                    open_pos,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "symbol": st.column_config.TextColumn("Symbol"),
+                        "net_quantity": st.column_config.NumberColumn("Net quantity", format="%.2f"),
+                    },
+                )
 
 # --- STRÁNKA: Nastavenia
 else:
