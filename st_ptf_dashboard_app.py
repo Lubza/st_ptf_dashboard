@@ -21,9 +21,15 @@ TABLE_TRANSACTIONS   = st.secrets["TABLE_TRANSACTIONS"]
 st.sidebar.title("📂 Navigácia")
 page = st.sidebar.radio(
     "Choď na stránku:",
-    ["📊 Dividends Overview", "📈 Transactions", "Open option positions", "⚙️ Nastavenia"]
+    ("📊 Dividends Overview", "📈 Transactions", "Open option positions", "⚙️ Nastavenia"),
+    key="nav"   # dôležité pri zmene zoznamu možností
 )
 st.sidebar.markdown("---")
+# voliteľné: reset navigácie (ak by sa držal starý stav)
+if st.sidebar.button("🔄 Obnoviť navigáciu"):
+    st.session_state.pop("nav", None)
+    st.rerun()
+
 st.sidebar.info("Tu môžeš pridať ďalšie sekcie alebo filter.")
 
 # --- FUNCTIONS na načítanie dát
@@ -315,7 +321,7 @@ elif page == "Open option positions":
     if df_tx.empty:
         st.warning("No transactions in the table.")
     else:
-        required = {"assetclass", "symbol", "quantity"}
+        required = {"assetclass", "description", "quantity"}
         missing = required - set(df_tx.columns)
         if missing:
             st.error(f"Missing columns in transactions table: {', '.join(sorted(missing))}")
@@ -323,15 +329,15 @@ elif page == "Open option positions":
             df_opt = df_tx.copy()
 
             # len opcie
-            df_opt["assetclass"] = df_opt["assetclass"].astype(str)
-            df_opt = df_opt[df_opt["assetclass"].str.upper() == "OPT"]
+            df_opt["assetclass"] = df_opt["assetclass"].astype(str).str.upper()
+            df_opt = df_opt[df_opt["assetclass"] == "OPT"]
 
             # numerická quantity
             df_opt["quantity"] = pd.to_numeric(df_opt["quantity"], errors="coerce").fillna(0.0)
 
             # agregácia na symbol
             open_pos = (
-                df_opt.groupby("symbol", as_index=False)["quantity"]
+                df_opt.groupby("description", as_index=False)["quantity"]
                 .sum()
                 .rename(columns={"quantity": "net_quantity"})
             )
@@ -340,14 +346,14 @@ elif page == "Open option positions":
             open_pos = open_pos[open_pos["net_quantity"].round(8) != 0]
 
             # voliteľné meta stĺpce (prvý nenull záznam na symbol)
-            possible_meta = ["underlyingsymbol", "expiry", "strike", "right", "multiplier", "currency"]
+            possible_meta = ["underlyingsymbol", "put/call", "buy/sell", "quantity", "ibcommissioncurrency", "tradeprice", "expiry", "strike", "tradedate"]
             meta_cols = [c for c in possible_meta if c in df_opt.columns]
             if meta_cols:
                 meta = (
-                    df_opt.groupby("symbol", as_index=False)[meta_cols]
+                    df_opt.groupby("description", as_index=False)[meta_cols]
                     .agg(lambda s: s.dropna().iloc[0] if s.dropna().size else None)
                 )
-                open_pos = open_pos.merge(meta, on="symbol", how="left")
+                open_pos = open_pos.merge(meta, on="description", how="left")
 
             # zoradiť podľa absolútnej veľkosti
             open_pos = open_pos.sort_values("net_quantity", key=lambda s: s.abs(), ascending=False)
@@ -360,10 +366,39 @@ elif page == "Open option positions":
                     use_container_width=True,
                     hide_index=True,
                     column_config={
-                        "symbol": st.column_config.TextColumn("Symbol"),
+                        "description": st.column_config.TextColumn("description"),
                         "net_quantity": st.column_config.NumberColumn("Net quantity", format="%.2f"),
                     },
                 )
+
+            # --------- SHOW DETAILS ----------
+            st.markdown("---")
+            show_details = st.checkbox("Show details")
+            if show_details and not open_pos.empty:
+                sel = st.selectbox("description:", options=open_pos["description"].tolist())
+                details = df_opt[df_opt["description"] == sel].copy()
+
+                # nájdi vhodný dátumový stĺpec a zoraď
+                date_candidates = [c for c in ("date", "tradedate", "settledate", "lasttradingday") if c in details.columns]
+                if date_candidates:
+                    sort_col = date_candidates[0]
+                    with pd.option_context('mode.chained_assignment', None):
+                        try:
+                            details[sort_col] = pd.to_datetime(details[sort_col], errors="coerce")
+                        except Exception:
+                            pass
+                    details = details.sort_values(sort_col, ascending=False)
+
+                prefer = [
+                    "description","underlyingsymbol","right","expiry","strike",
+                    "quantity","price","amount","transactiontype","currency","multiplier"
+                ]
+                cols = [c for c in prefer if c in details.columns]
+                # pridaj dátumový stĺpec na začiatok, ak sme ho našli
+                if date_candidates:
+                    cols = [date_candidates[0]] + [c for c in cols if c != date_candidates[0]]
+
+                st.dataframe(details[cols] if cols else details, use_container_width=True, hide_index=True)
 
 # --- STRÁNKA: Nastavenia
 else:
