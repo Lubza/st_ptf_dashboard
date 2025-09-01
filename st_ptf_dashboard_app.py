@@ -346,7 +346,7 @@ elif page == "Open option positions":
             open_pos = open_pos[open_pos["net_quantity"].round(8) != 0]
 
             # voliteľné meta stĺpce (prvý nenull záznam na symbol)
-            possible_meta = ["underlyingsymbol", "put/call", "buy/sell", "quantity", "ibcommissioncurrency", "tradeprice", "expiry", "strike", "tradedate"]
+            possible_meta = ["underlyingsymbol", "put/call", "buy/sell", "quantity", "currencyprimary", "tradeprice", "expiry", "strike", "tradedate"]
             meta_cols = [c for c in possible_meta if c in df_opt.columns]
             if meta_cols:
                 meta = (
@@ -356,7 +356,7 @@ elif page == "Open option positions":
                 open_pos = open_pos.merge(meta, on="description", how="left")
 
             # zoradiť podľa absolútnej veľkosti
-            open_pos = open_pos.sort_values("net_quantity", key=lambda s: s.abs(), ascending=False)
+            #open_pos = open_pos.sort_values("net_quantity", key=lambda s: s.abs(), ascending=False)
 
             if open_pos.empty:
                 st.success("Žiadne otvorené opčné pozície (netto = 0).")
