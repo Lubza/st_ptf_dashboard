@@ -6,11 +6,11 @@ import numpy as np
 
 st.set_page_config(layout="wide")
 
-# === Konštanty šírok, nech je všetko konzistentné ===
-CHART_WIDTH_LEFT  = 700   # graf vľavo + tabuľka pod ním (Tab 1)
-CHART_WIDTH_TAB2  = 700   # selectbox/graf/tabuľka v Tab 2
-CHART_WIDTH_TAB3  = 700   # graf + tabuľka v Tab 3
-RIGHT_TABLE_H     = 260   # výška tabuliek vpravo
+# === Konštanty šírok ===
+CHART_WIDTH_LEFT  = 700
+CHART_WIDTH_TAB2  = 700
+CHART_WIDTH_TAB3  = 700
+RIGHT_TABLE_H     = 260
 
 # načítame si z secrets.yml
 DB_URL               = st.secrets["DB_URL"]
@@ -22,14 +22,12 @@ st.sidebar.title("📂 Navigácia")
 page = st.sidebar.radio(
     "Choď na stránku:",
     ("📊 Dividends Overview", "📈 Transactions", "Open option positions", "⚙️ Nastavenia"),
-    key="nav"   # dôležité pri zmene zoznamu možností
+    key="nav"
 )
 st.sidebar.markdown("---")
-# voliteľné: reset navigácie (ak by sa držal starý stav)
 if st.sidebar.button("🔄 Obnoviť navigáciu"):
     st.session_state.pop("nav", None)
     st.rerun()
-
 st.sidebar.info("Tu môžeš pridať ďalšie sekcie alebo filter.")
 
 # --- FUNCTIONS na načítanie dát
@@ -54,7 +52,7 @@ df_divi["amount"] = pd.to_numeric(df_divi["amount"], errors="coerce")
 df_divi.replace([np.inf, -np.inf], np.nan, inplace=True)
 df_divi["amount"] = df_divi["amount"].fillna(0)
 
-# --- jednotné mená stĺpcov v tx (kvôli jednoduchšiemu spracovaniu)
+# --- jednotné mená stĺpcov v tx
 df_tx.columns = [c.lower() for c in df_tx.columns]
 
 # mapovanie tickerov
@@ -81,7 +79,6 @@ if page == "📊 Dividends Overview":
         df_divi['year']       = df_divi['settledate'].dt.year
         df_divi['settledate_str'] = df_divi['settledate'].dt.strftime('%m/%d/%Y')
 
-        # aktuálny mesiac (na pravý stĺpec)
         current_period = pd.Timestamp.today().to_period('M')
         df_divi_cur = df_divi[df_divi['settledate'].dt.to_period('M') == current_period]
 
@@ -91,7 +88,6 @@ if page == "📊 Dividends Overview":
             .reset_index(drop=True)
         )
 
-        # layout
         col1, col2 = st.columns([2.7, 1.3])
 
         # ======================= ĽAVÝ STĹPEC =======================
@@ -117,8 +113,6 @@ if page == "📊 Dividends Overview":
                 st.altair_chart(chart, use_container_width=False)
 
                 st.subheader("Year × Currency")
-
-                # pivot
                 summary_y = df_divi.groupby(['year', 'currency'], as_index=False)['amount'].sum()
                 pivot_y = summary_y.pivot_table(index='currency', columns='year', values='amount',
                                                 aggfunc='sum', fill_value=0)
@@ -175,7 +169,6 @@ if page == "📊 Dividends Overview":
                 df_y['quarter'] = 'Q' + df_y['settledate'].dt.quarter.astype(str)
 
                 summary_q = df_y.groupby(['quarter', 'currency'], as_index=False)['amount'].sum()
-
                 order_q = ['Q1', 'Q2', 'Q3', 'Q4']
                 summary_q['quarter'] = pd.Categorical(summary_q['quarter'], categories=order_q, ordered=True)
                 summary_q = summary_q.sort_values('quarter')
@@ -314,7 +307,7 @@ elif page == "📈 Transactions":
     else:
         st.dataframe(df_tx)
 
-# --- STRÁNKA: Open option positions (len net-otvorené opcie)
+# --- STRÁNKA: Open option positions (len net-otvorené opcie, zobrazenie po RIADKOCH)
 elif page == "Open option positions":
     st.header("Open option positions")
 
@@ -332,53 +325,90 @@ elif page == "Open option positions":
             df_opt["assetclass"] = df_opt["assetclass"].astype(str).str.upper()
             df_opt = df_opt[df_opt["assetclass"] == "OPT"]
 
-            # numerická quantity
-            df_opt["quantity"] = pd.to_numeric(df_opt["quantity"], errors="coerce").fillna(0.0)
+            # numeriky
+            df_opt["quantity"]    = pd.to_numeric(df_opt.get("quantity"), errors="coerce").fillna(0.0)
+            df_opt["tradeprice"]  = pd.to_numeric(df_opt.get("tradeprice"), errors="coerce").fillna(0.0)
+            df_opt["strike"]      = pd.to_numeric(df_opt.get("strike"), errors="coerce").fillna(0.0)
 
-            # agregácia na symbol
-            open_pos = (
+            # Netto filter: ponecháme len tie DESCRIPTION, ktoré majú nenulový čistý súčet
+            net_by_desc = (
                 df_opt.groupby("description", as_index=False)["quantity"]
                 .sum()
                 .rename(columns={"quantity": "net_quantity"})
             )
+            df_opt = df_opt.merge(net_by_desc, on="description", how="left")
+            df_opt = df_opt[df_opt["net_quantity"].round(8) != 0]
 
-            # odstrániť čistú nulu (s toleranciou)
-            open_pos = open_pos[open_pos["net_quantity"].round(8) != 0]
+            # ---- Premium po RIADKOCH
+            df_opt["premium"] = (df_opt["tradeprice"] * df_opt["quantity"] * 100).round(2)
 
-            # voliteľné meta stĺpce (prvý nenull záznam na symbol)
-            possible_meta = ["underlyingsymbol", "put/call", "buy/sell", "quantity", "currencyprimary", "tradeprice", "expiry", "strike", "tradedate"]
-            meta_cols = [c for c in possible_meta if c in df_opt.columns]
-            if meta_cols:
-                meta = (
-                    df_opt.groupby("description", as_index=False)[meta_cols]
-                    .agg(lambda s: s.dropna().iloc[0] if s.dropna().size else None)
-                )
-                open_pos = open_pos.merge(meta, on="description", how="left")
+            # ---- DTE po RIADKOCH (expiry je často 20250919 alebo 20250919.0)
+            def to_date_yyyymmdd(x):
+                if pd.isna(x):
+                    return pd.NaT
+                s = str(x).strip().split(".")[0]
+                s = s[:8]
+                return pd.to_datetime(s, format="%Y%m%d", errors="coerce")
 
-            # zoradiť podľa absolútnej veľkosti
-            #open_pos = open_pos.sort_values("net_quantity", key=lambda s: s.abs(), ascending=False)
-
-            if open_pos.empty:
-                st.success("Žiadne otvorené opčné pozície (netto = 0).")
+            if "expiry" in df_opt.columns:
+                df_opt["expiry_dt"] = df_opt["expiry"].apply(to_date_yyyymmdd)
+                today = pd.Timestamp.today().normalize()
+                df_opt["DTE"] = (df_opt["expiry_dt"] - today).dt.days
+                df_opt["DTE"] = df_opt["DTE"].fillna(0).clip(lower=0).astype(int)
             else:
-                st.dataframe(
-                    open_pos,
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={
-                        "description": st.column_config.TextColumn("description"),
-                        "net_quantity": st.column_config.NumberColumn("Net quantity", format="%.2f"),
-                    },
-                )
+                df_opt["DTE"] = None
 
-            # --------- SHOW DETAILS ----------
+            # ---- Capital blocked so znamienkom
+            df_opt["capital blocked"] = (df_opt["strike"] * df_opt["quantity"] * 100).round(2)
+
+            # ---- Put/Call mapping
+            if "put/call" in df_opt.columns:
+                df_opt["put/call"] = df_opt["put/call"].map({"C": "Call", "P": "Put"}).fillna(df_opt["put/call"])
+
+            # zoradenie (najbližšia expirácia hore)
+            sort_cols = [c for c in ["DTE", "description"] if c in df_opt.columns]
+            if sort_cols:
+                df_opt = df_opt.sort_values(sort_cols, ascending=[True, True] if len(sort_cols) == 2 else True)
+
+            # --- Zobrazenie: skryjeme vybrané stĺpce tak, že ich nedáme do display_cols
+            display_cols = [
+                "description",
+                "put/call",
+                "quantity",            # necháme vidieť kusy
+                "strike",
+                "premium",
+                "DTE",
+                "capital blocked",
+                "currencyprimary",     # menu môžeš vyhodiť, ak nechceš
+            ]
+            display_cols = [c for c in display_cols if c in df_opt.columns]
+
+            st.dataframe(
+                df_opt[display_cols],
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "description":        st.column_config.TextColumn("description"),
+                    "put/call":           st.column_config.TextColumn("put/call"),
+                    "quantity":           st.column_config.NumberColumn("quantity", format="%.2f"),
+                    "strike":             st.column_config.NumberColumn("strike", format="%.2f"),
+                    "premium":            st.column_config.NumberColumn("premium", format="%.2f"),
+                    "DTE":                st.column_config.NumberColumn("DTE", format="%d"),
+                    "capital blocked":    st.column_config.NumberColumn("capital blocked", format="%.2f"),
+                    "currencyprimary":    st.column_config.TextColumn("currency"),
+                },
+            )
+
+            # --------- SHOW DETAILS (podľa description)
             st.markdown("---")
             show_details = st.checkbox("Show details")
-            if show_details and not open_pos.empty:
-                sel = st.selectbox("description:", options=open_pos["description"].tolist())
-                details = df_opt[df_opt["description"] == sel].copy()
+            if show_details and not df_opt.empty:
+                sel = st.selectbox("description:", options=sorted(df_opt["description"].unique().tolist()))
+                details = df_tx.copy()
+                details.columns = [c.lower() for c in details.columns]
+                details = details[details.get("description") == sel]
 
-                # nájdi vhodný dátumový stĺpec a zoraď
+                # zoradenie podľa najvhodnejšieho dátumu
                 date_candidates = [c for c in ("date", "tradedate", "settledate", "lasttradingday") if c in details.columns]
                 if date_candidates:
                     sort_col = date_candidates[0]
@@ -389,16 +419,8 @@ elif page == "Open option positions":
                             pass
                     details = details.sort_values(sort_col, ascending=False)
 
-                prefer = [
-                    "description","underlyingsymbol","right","expiry","strike",
-                    "quantity","price","amount","transactiontype","currency","multiplier"
-                ]
-                cols = [c for c in prefer if c in details.columns]
-                # pridaj dátumový stĺpec na začiatok, ak sme ho našli
-                if date_candidates:
-                    cols = [date_candidates[0]] + [c for c in cols if c != date_candidates[0]]
-
-                st.dataframe(details[cols] if cols else details, use_container_width=True, hide_index=True)
+                # zobrazíme pôvodné riadky (plné detaily)
+                st.dataframe(details, use_container_width=True, hide_index=True)
 
 # --- STRÁNKA: Nastavenia
 else:
