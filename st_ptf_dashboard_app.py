@@ -325,12 +325,17 @@ elif page == "Open option positions":
             df_opt["assetclass"] = df_opt["assetclass"].astype(str).str.upper()
             df_opt = df_opt[df_opt["assetclass"] == "OPT"]
 
-            # numeriky
-            df_opt["quantity"]    = pd.to_numeric(df_opt.get("quantity"), errors="coerce").fillna(0.0)
-            df_opt["tradeprice"]  = pd.to_numeric(df_opt.get("tradeprice"), errors="coerce").fillna(0.0)
-            df_opt["strike"]      = pd.to_numeric(df_opt.get("strike"), errors="coerce").fillna(0.0)
+            # normalizácia stĺpcov
+            for col in ["quantity", "tradeprice", "strike"]:
+                if col in df_opt.columns:
+                    df_opt[col] = pd.to_numeric(df_opt[col], errors="coerce").fillna(0.0)
 
-            # Netto filter: ponecháme len tie DESCRIPTION, ktoré majú nenulový čistý súčet
+            if "buy/sell" in df_opt.columns:
+                df_opt["buy/sell"] = df_opt["buy/sell"].astype(str).str.upper().str.strip()
+            if "put/call" in df_opt.columns:
+                df_opt["put/call"] = df_opt["put/call"].astype(str).str.upper().str.strip()
+
+            # Netto filter: description s nenulovou čistou pozíciou
             net_by_desc = (
                 df_opt.groupby("description", as_index=False)["quantity"]
                 .sum()
@@ -339,10 +344,12 @@ elif page == "Open option positions":
             df_opt = df_opt.merge(net_by_desc, on="description", how="left")
             df_opt = df_opt[df_opt["net_quantity"].round(8) != 0]
 
-            # ---- Premium po RIADKOCH
+            # Premium po RIADKOCH
             df_opt["premium"] = (df_opt["tradeprice"] * df_opt["quantity"] * 100).round(2)
+            # Unearned premium: -premium
+            df_opt["unearned_premium"] = (-df_opt["premium"]).round(2)
 
-            # ---- DTE po RIADKOCH (expiry je často 20250919 alebo 20250919.0)
+            # DTE z expiry
             def to_date_yyyymmdd(x):
                 if pd.isna(x):
                     return pd.NaT
@@ -356,48 +363,185 @@ elif page == "Open option positions":
                 df_opt["DTE"] = (df_opt["expiry_dt"] - today).dt.days
                 df_opt["DTE"] = df_opt["DTE"].fillna(0).clip(lower=0).astype(int)
             else:
+                df_opt["expiry_dt"] = pd.NaT
                 df_opt["DTE"] = None
 
-            # ---- Capital blocked so znamienkom
+            # Capital blocked so znamienkom
             df_opt["capital blocked"] = (df_opt["strike"] * df_opt["quantity"] * 100).round(2)
 
-            # ---- Put/Call mapping
+            # Prezentácia Put/Call
             if "put/call" in df_opt.columns:
                 df_opt["put/call"] = df_opt["put/call"].map({"C": "Call", "P": "Put"}).fillna(df_opt["put/call"])
 
-            # zoradenie (najbližšia expirácia hore)
-            sort_cols = [c for c in ["DTE", "description"] if c in df_opt.columns]
-            if sort_cols:
-                df_opt = df_opt.sort_values(sort_cols, ascending=[True, True] if len(sort_cols) == 2 else True)
+            # --------- rozdelenie layoutu na 2 stĺpce
+            left, right = st.columns([2.6, 1.4])
 
-            # --- Zobrazenie: skryjeme vybrané stĺpce tak, že ich nedáme do display_cols
-            display_cols = [
-                "description",
-                "put/call",
-                "quantity",            # necháme vidieť kusy
-                "strike",
-                "premium",
-                "DTE",
-                "capital blocked",
-                "currencyprimary",     # menu môžeš vyhodiť, ak nechceš
-            ]
-            display_cols = [c for c in display_cols if c in df_opt.columns]
+            # ===================== ĽAVÁ STRANA =====================
+            with left:
+                display_cols = [
+                    "description",
+                    "put/call",
+                    "quantity",
+                    "strike",
+                    "premium",
+                    "unearned_premium",
+                    "DTE",
+                    "capital blocked",
+                    "currencyprimary",
+                ]
+                display_cols = [c for c in display_cols if c in df_opt.columns]
 
-            st.dataframe(
-                df_opt[display_cols],
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "description":        st.column_config.TextColumn("description"),
-                    "put/call":           st.column_config.TextColumn("put/call"),
-                    "quantity":           st.column_config.NumberColumn("quantity", format="%.2f"),
-                    "strike":             st.column_config.NumberColumn("strike", format="%.2f"),
-                    "premium":            st.column_config.NumberColumn("premium", format="%.2f"),
-                    "DTE":                st.column_config.NumberColumn("DTE", format="%d"),
-                    "capital blocked":    st.column_config.NumberColumn("capital blocked", format="%.2f"),
-                    "currencyprimary":    st.column_config.TextColumn("currency"),
-                },
-            )
+                # zoradenie podľa expirácie
+                sort_cols = [c for c in ["DTE", "description"] if c in df_opt.columns]
+                if sort_cols:
+                    df_opt = df_opt.sort_values(sort_cols, ascending=[True, True] if len(sort_cols) == 2 else True)
+
+                st.subheader("Positions")
+                st.dataframe(
+                    df_opt[display_cols],
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "description":        st.column_config.TextColumn("description"),
+                        "put/call":           st.column_config.TextColumn("put/call"),
+                        "quantity":           st.column_config.NumberColumn("quantity", format="%.2f"),
+                        "strike":             st.column_config.NumberColumn("strike", format="%.2f"),
+                        "premium":            st.column_config.NumberColumn("premium", format="%.2f"),
+                        "unearned_premium":   st.column_config.NumberColumn("unearned premium", format="%.2f"),
+                        "DTE":                st.column_config.NumberColumn("DTE", format="%d"),
+                        "capital blocked":    st.column_config.NumberColumn("capital blocked", format="%.2f"),
+                        "currencyprimary":    st.column_config.TextColumn("currency"),
+                    },
+                )
+
+            # ===================== PRAVÁ STRANA =====================
+            with right:
+                st.subheader("Summary")
+
+                # Counts podľa buy/sell a put/call
+                def _count(side, opttype):
+                    mask = (df_opt.get("buy/sell") == side) & (df_opt.get("put/call") == opttype)
+                    return int(mask.sum())
+
+                counts_df = pd.DataFrame({
+                    "Metric": [
+                        "Count of positions (sell put)",
+                        "Count of positions (sell call)",
+                        "Count of positions (buy put)",
+                        "Count of positions (buy call)",
+                    ],
+                    "Value": [
+                        _count("SELL", "Put"),
+                        _count("SELL", "Call"),
+                        _count("BUY",  "Put"),
+                        _count("BUY",  "Call"),
+                    ],
+                })
+                st.dataframe(
+                    counts_df,
+                    hide_index=True,
+                    use_container_width=True,
+                    column_config={"Metric": st.column_config.TextColumn(),
+                                   "Value":  st.column_config.NumberColumn(format="%d")},
+                    height=190,
+                )
+
+                # Capital blocked totals len pre short puts
+                df_sp = df_opt[
+                    (df_opt.get("buy/sell") == "SELL") &
+                    (df_opt.get("put/call") == "Put")
+                ].copy()
+
+                cap_tot = (
+                    df_sp.assign(_cc=df_sp.get("currencyprimary", ""))
+                         .groupby("_cc", dropna=False)["capital blocked"]
+                         .apply(lambda s: s.abs().sum())   # alebo .sum() ak chceš znamienko
+                         .reindex(["USD","EUR"])
+                         .fillna(0.0)
+                         .round(2)
+                )
+                up_tot = (
+                    df_opt.assign(_cc=df_opt.get("currencyprimary", ""))
+                         .groupby("_cc", dropna=False)["unearned_premium"]
+                         .sum()
+                         .reindex(["USD","EUR"])
+                         .fillna(0.0)
+                         .round(2)
+                )
+
+                totals_df = pd.DataFrame({
+                    "Metric": [
+                        "Capital blocked total (USD)",
+                        "Capital blocked total (EUR)",
+                        "Unearned premium total (USD)",
+                        "Unearned premium total (EUR)",
+                    ],
+                    "Value": [
+                        cap_tot.get("USD", 0.0),
+                        cap_tot.get("EUR", 0.0),
+                        up_tot.get("USD", 0.0),
+                        up_tot.get("EUR", 0.0),
+                    ],
+                })
+                st.dataframe(
+                    totals_df,
+                    hide_index=True,
+                    use_container_width=True,
+                    column_config={"Metric": st.column_config.TextColumn(),
+                                   "Value":  st.column_config.NumberColumn(format="%.2f")},
+                    height=220,
+                )
+
+                # Capital blocked by expiry (len short puts)
+                exp_sp = df_sp.copy()
+                exp_sp["expiry_str"] = exp_sp["expiry_dt"].dt.strftime("%Y-%m-%d")
+                cap_by_exp = (
+                    exp_sp.groupby(["expiry_str","currencyprimary"], dropna=False)["capital blocked"]
+                          .apply(lambda s: s.abs().sum())
+                          .unstack("currencyprimary")[["USD","EUR"]]
+                          .fillna(0.0).round(2)
+                          .reset_index()
+                          .rename(columns={"expiry_str": "expiry"})
+                )
+
+                # Unearned premium by expiry (všetky)
+                exp_all = df_opt.copy()
+                exp_all["expiry_str"] = exp_all["expiry_dt"].dt.strftime("%Y-%m-%d")
+                up_by_exp = (
+                    exp_all.groupby(["expiry_str","currencyprimary"], dropna=False)["unearned_premium"]
+                           .sum()
+                           .unstack("currencyprimary")[["USD","EUR"]]
+                           .fillna(0.0).round(2)
+                           .reset_index()
+                           .rename(columns={"expiry_str": "expiry"})
+                )
+
+                st.markdown("**Capital blocked by expiry (USD / EUR)**")
+                st.dataframe(
+                    cap_by_exp,
+                    hide_index=True,
+                    use_container_width=True,
+                    column_config={
+                        "expiry": st.column_config.TextColumn(),
+                        "USD":    st.column_config.NumberColumn(format="%.2f"),
+                        "EUR":    st.column_config.NumberColumn(format="%.2f"),
+                    },
+                    height=220,
+                )
+
+                st.markdown("**Unearned premium by expiry (USD / EUR)**")
+                st.dataframe(
+                    up_by_exp,
+                    hide_index=True,
+                    use_container_width=True,
+                    column_config={
+                        "expiry": st.column_config.TextColumn(),
+                        "USD":    st.column_config.NumberColumn(format="%.2f"),
+                        "EUR":    st.column_config.NumberColumn(format="%.2f"),
+                    },
+                    height=220,
+                )
+
 
             # --------- SHOW DETAILS (podľa description)
             st.markdown("---")
