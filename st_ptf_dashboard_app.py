@@ -6,31 +6,31 @@ import numpy as np
 
 st.set_page_config(layout="wide")
 
-# === Konštanty šírok ===
+# === Layout constants ===
 CHART_WIDTH_LEFT  = 700
 CHART_WIDTH_TAB2  = 700
 CHART_WIDTH_TAB3  = 700
 RIGHT_TABLE_H     = 260
 
-# načítame si z secrets.yml
+# --- Secrets
 DB_URL               = st.secrets["DB_URL"]
 TABLE_DIVI           = st.secrets["TABLE_DIVI"]
 TABLE_TRANSACTIONS   = st.secrets["TABLE_TRANSACTIONS"]
 
 # --- SIDEBAR
-st.sidebar.title("📂 Navigácia")
+st.sidebar.title("📂 Navigation")
 page = st.sidebar.radio(
-    "Choď na stránku:",
-    ("📊 Dividends Overview", "📈 Transactions", "Open option positions", "⚙️ Nastavenia"),
+    "Go to:",
+    ("📊 Dividends Overview", "📈 Transactions", "Open option positions", "⚙️ Settings"),
     key="nav"
 )
 st.sidebar.markdown("---")
-if st.sidebar.button("🔄 Obnoviť navigáciu"):
+if st.sidebar.button("🔄 Reset navigation"):
     st.session_state.pop("nav", None)
     st.rerun()
-st.sidebar.info("Tu môžeš pridať ďalšie sekcie alebo filter.")
+st.sidebar.info("You can add more sections or filters here.")
 
-# --- FUNCTIONS na načítanie dát
+# --- DATA LOADERS
 @st.cache_data(ttl=600)
 def load_dividends() -> pd.DataFrame:
     engine = create_engine(DB_URL)
@@ -47,15 +47,15 @@ def load_transactions() -> pd.DataFrame:
 df_divi = load_dividends()
 df_tx   = load_transactions()
 
-# čísla + základné čistenie
+# --- Basic cleanup for dividends
 df_divi["amount"] = pd.to_numeric(df_divi["amount"], errors="coerce")
 df_divi.replace([np.inf, -np.inf], np.nan, inplace=True)
 df_divi["amount"] = df_divi["amount"].fillna(0)
 
-# --- jednotné mená stĺpcov v tx
+# --- Normalize transaction columns
 df_tx.columns = [c.lower() for c in df_tx.columns]
 
-# mapovanie tickerov
+# --- Ticker mapping (optional)
 TICKER_FIX = {
     "VNA": "VNA.DE", "VNA.DIV": "VNA.DE", "VNA.DRTS": "VNA.DE", "VNA.DVD": "VNA.DE", "VNA.DVRTS": "VNA.DE",
     "DIC": "BRNK.DE", "DIC.DIV": "BRNK.DE", "BRNK": "BRNK.DE",
@@ -66,14 +66,14 @@ if "symbol" in df_divi.columns:
 if "underlyingsymbol" in df_tx.columns:
     df_tx["underlyingsymbol"] = df_tx["underlyingsymbol"].replace(TICKER_FIX)
 
-# --- STRÁNKA: Dividends Overview
+# ========================= PAGE: Dividends Overview =========================
 if page == "📊 Dividends Overview":
     st.title("Dividends overview")
 
     if df_divi.empty:
         st.warning("The dividends table is empty.")
     else:
-        # dátumy
+        # Dates & helpers
         df_divi['settledate'] = pd.to_datetime(df_divi['settledate'], format='%Y%m%d')
         df_divi['month']      = df_divi['settledate'].dt.strftime('%b')
         df_divi['year']       = df_divi['settledate'].dt.year
@@ -90,11 +90,11 @@ if page == "📊 Dividends Overview":
 
         col1, col2 = st.columns([2.7, 1.3])
 
-        # ======================= ĽAVÝ STĹPEC =======================
+        # ----------------------- LEFT COLUMN -----------------------
         with col1:
-            tab1, tab2, tab3 = st.tabs(["📅 Rok", "🗓️ By Quarter", "🔖 Ticker"])
+            tab1, tab2, tab3 = st.tabs(["📅 Year", "🗓️ By Quarter", "🔖 Ticker"])
 
-            # ----- Tab 1: Rok
+            # ----- Tab 1: Year
             with tab1:
                 st.subheader("Summary by Year & Currency")
                 summary = df_divi.groupby(['year','currency'])['amount'].sum().reset_index()
@@ -154,7 +154,7 @@ if page == "📊 Dividends Overview":
                 st.subheader("Summary by Quarter & Currency")
                 year_options = sorted(df_divi['year'].unique())
                 selected_year = st.selectbox(
-                    "Vyber rok:",
+                    "Select year:",
                     options=year_options,
                     index=len(year_options) - 1,
                     key="sel_year"
@@ -219,7 +219,7 @@ if page == "📊 Dividends Overview":
             with tab3:
                 st.subheader("Summary by Ticker & Year")
                 tics = sorted(df_divi['symbol'].dropna().unique())
-                sel_t = st.multiselect("Zvoľ ticker(y):", options=tics, default=tics[:1], key="sel_t")
+                sel_t = st.multiselect("Choose ticker(s):", options=tics, default=tics[:1], key="sel_t")
 
                 if sel_t:
                     df_t = df_divi[df_divi['symbol'].isin(sel_t)]
@@ -255,13 +255,13 @@ if page == "📊 Dividends Overview":
                         }
                     )
                 else:
-                    st.info("Vyber aspoň jeden ticker.")
+                    st.info("Select at least one ticker.")
 
-        # ======================= PRAVÝ STĹPEC =======================
+        # ----------------------- RIGHT COLUMN -----------------------
         with col2:
             st.subheader("Current month dividends")
             if df_show.empty:
-                st.info(" V tomto mesiaci zatiaľ nemáš žiadne dividendy")
+                st.info("You have no dividends this month yet.")
             else:
                 st.dataframe(df_show.set_index("symbol"), height=RIGHT_TABLE_H, use_container_width=True)
 
@@ -269,7 +269,7 @@ if page == "📊 Dividends Overview":
             st.subheader("Top 5 dividends by ticker (All-time)")
 
             if df_divi.empty:
-                st.info("Zatiaľ tu nemáš žiadne dividendy.")
+                st.info("No dividends yet.")
             else:
                 df = df_divi[["symbol", "amount"]].copy()
                 df["amount"] = pd.to_numeric(df["amount"], errors="coerce")
@@ -285,7 +285,6 @@ if page == "📊 Dividends Overview":
                     .rename(columns={"symbol": "Ticker"})
                     .reset_index(drop=True)
                 )
-
                 all_time["Total"] = all_time["Total"].astype(float)
 
                 st.dataframe(
@@ -299,7 +298,7 @@ if page == "📊 Dividends Overview":
                     },
                 )
 
-# --- STRÁNKA: Transactions
+# ========================= PAGE: Transactions =========================
 elif page == "📈 Transactions":
     st.header("Transactions overview")
     if df_tx.empty:
@@ -307,7 +306,7 @@ elif page == "📈 Transactions":
     else:
         st.dataframe(df_tx)
 
-# --- STRÁNKA: Open option positions (len net-otvorené opcie, zobrazenie po RIADKOCH)
+# ========================= PAGE: Open option positions =========================
 elif page == "Open option positions":
     st.header("Open option positions")
 
@@ -321,11 +320,11 @@ elif page == "Open option positions":
         else:
             df_opt = df_tx.copy()
 
-            # len opcie
+            # Keep only options
             df_opt["assetclass"] = df_opt["assetclass"].astype(str).str.upper()
             df_opt = df_opt[df_opt["assetclass"] == "OPT"]
 
-            # normalizácia stĺpcov
+            # Normalize numeric columns
             for col in ["quantity", "tradeprice", "strike"]:
                 if col in df_opt.columns:
                     df_opt[col] = pd.to_numeric(df_opt[col], errors="coerce").fillna(0.0)
@@ -335,7 +334,7 @@ elif page == "Open option positions":
             if "put/call" in df_opt.columns:
                 df_opt["put/call"] = df_opt["put/call"].astype(str).str.upper().str.strip()
 
-            # Netto filter: description s nenulovou čistou pozíciou
+            # Net filter: keep descriptions with non-zero net quantity
             net_by_desc = (
                 df_opt.groupby("description", as_index=False)["quantity"]
                 .sum()
@@ -344,12 +343,11 @@ elif page == "Open option positions":
             df_opt = df_opt.merge(net_by_desc, on="description", how="left")
             df_opt = df_opt[df_opt["net_quantity"].round(8) != 0]
 
-            # Premium po RIADKOCH
+            # Premiums
             df_opt["premium"] = (df_opt["tradeprice"] * df_opt["quantity"] * 100).round(2)
-            # Unearned premium: -premium
             df_opt["unearned_premium"] = (-df_opt["premium"]).round(2)
 
-            # DTE z expiry
+            # Expiry -> DTE
             def to_date_yyyymmdd(x):
                 if pd.isna(x):
                     return pd.NaT
@@ -366,17 +364,17 @@ elif page == "Open option positions":
                 df_opt["expiry_dt"] = pd.NaT
                 df_opt["DTE"] = None
 
-            # Capital blocked so znamienkom
+            # Capital blocked (signed)
             df_opt["capital blocked"] = (df_opt["strike"] * df_opt["quantity"] * 100).round(2)
 
-            # Prezentácia Put/Call
+            # Put/Call labels
             if "put/call" in df_opt.columns:
                 df_opt["put/call"] = df_opt["put/call"].map({"C": "Call", "P": "Put"}).fillna(df_opt["put/call"])
 
-            # --------- rozdelenie layoutu na 2 stĺpce
+            # --------- Two-column layout
             left, right = st.columns([2.6, 1.4])
 
-            # ===================== ĽAVÁ STRANA =====================
+            # ===================== LEFT SIDE =====================
             with left:
                 display_cols = [
                     "description",
@@ -391,7 +389,7 @@ elif page == "Open option positions":
                 ]
                 display_cols = [c for c in display_cols if c in df_opt.columns]
 
-                # zoradenie podľa expirácie
+                # Sort by expiry (DTE) then by description
                 sort_cols = [c for c in ["DTE", "description"] if c in df_opt.columns]
                 if sort_cols:
                     df_opt = df_opt.sort_values(sort_cols, ascending=[True, True] if len(sort_cols) == 2 else True)
@@ -414,11 +412,142 @@ elif page == "Open option positions":
                     },
                 )
 
-            # ===================== PRAVÁ STRANA =====================
+                # ======== VISUALS ========
+                st.markdown("### Visuals")
+
+                # --- Currency filter (affects all visuals below)
+                # If nothing is selected, default to all currencies present.
+                cur_options = sorted(df_opt.get("currencyprimary", pd.Series(dtype=str)).dropna().unique().tolist())
+                if len(cur_options) == 0:
+                    cur_options = []
+                selected_curs = st.multiselect(
+                    "Filter by currency (affects pies and charts below):",
+                    options=cur_options,
+                    default=cur_options if cur_options else None,
+                    key="cur_filter_openopts"
+                )
+
+                if selected_curs:
+                    df_vis = df_opt[df_opt.get("currencyprimary").isin(selected_curs)].copy()
+                else:
+                    # If user deselects all, treat it as "no filter" to avoid empty visuals
+                    df_vis = df_opt.copy()
+
+                # Short puts subset (for capital blocked)
+                df_sp_vis = df_vis[(df_vis.get("buy/sell") == "SELL") & (df_vis.get("put/call") == "Put")].copy()
+
+                # --- Aggregations for pies
+                up_by_cc = (
+                    df_vis.assign(cc=df_vis.get("currencyprimary", ""))
+                          .groupby("cc", dropna=False)["unearned_premium"]
+                          .sum().reset_index()
+                          .rename(columns={"cc": "currency", "unearned_premium": "up_sum"})
+                )
+
+                cb_by_cc = (
+                    df_sp_vis.assign(cc=df_sp_vis.get("currencyprimary", ""))
+                             .groupby("cc", dropna=False)["capital blocked"]
+                             .apply(lambda s: s.abs().sum()).reset_index()
+                             .rename(columns={"cc": "currency", "capital blocked": "cb_sum"})
+                )
+
+                # --- Percent shares by EXPIRY: share of total unearned premium (within selected currencies)
+                exp_agg = (
+                    df_vis.groupby("expiry_dt", dropna=False)["unearned_premium"]
+                          .sum().rename("up_sum").reset_index()
+                )
+                exp_agg = exp_agg.sort_values("expiry_dt")
+                exp_agg["expiry_str"] = exp_agg["expiry_dt"].dt.strftime("%Y-%m-%d").fillna("N/A")
+                total_up_exp = exp_agg["up_sum"].sum()
+                exp_agg["share_pct"] = np.where(total_up_exp > 0, exp_agg["up_sum"] / total_up_exp * 100, np.nan)
+
+                # --- Percent shares by TICKER: share of total unearned premium (within selected currencies)
+                if "underlyingsymbol" in df_vis.columns and df_vis["underlyingsymbol"].notna().any():
+                    tick_col = "underlyingsymbol"
+                else:
+                    tick_col = "ticker_fallback"
+                    df_vis[tick_col] = df_vis["description"].astype(str).str.split().str[0]
+
+                tic_agg = (
+                    df_vis.groupby(tick_col, dropna=False)["unearned_premium"]
+                          .sum().rename("up_sum").reset_index()
+                          .rename(columns={tick_col: "ticker"})
+                          .sort_values("ticker")
+                )
+                total_up_tic = tic_agg["up_sum"].sum()
+                tic_agg["share_pct"] = np.where(total_up_tic > 0, tic_agg["up_sum"] / total_up_tic * 100, np.nan)
+
+                # --- Row 1: smaller pies (blue & light purple)
+                c1, c2 = st.columns(2)
+
+                with c1:
+                    st.subheader("Unearned premium by currency")
+                    pie1 = (
+                        alt.Chart(up_by_cc)
+                        .mark_arc(innerRadius=60)
+                        .encode(
+                            theta=alt.Theta("up_sum:Q", title="Unearned premium"),
+                            color=alt.Color("currency:N", scale=alt.Scale(scheme="blues"), legend=None),
+                            tooltip=[alt.Tooltip("currency:N"), alt.Tooltip("up_sum:Q", format=",.2f")]
+                        )
+                        .properties(width=260, height=220)
+                    )
+                    st.altair_chart(pie1, use_container_width=False)
+
+                with c2:
+                    st.subheader("Capital blocked by currency (short puts)")
+                    pie2 = (
+                        alt.Chart(cb_by_cc)
+                        .mark_arc(innerRadius=60)
+                        .encode(
+                            theta=alt.Theta("cb_sum:Q", title="Capital blocked"),
+                            color=alt.Color("currency:N", scale=alt.Scale(scheme="purples"), legend=None),
+                            tooltip=[alt.Tooltip("currency:N"), alt.Tooltip("cb_sum:Q", format=",.2f")]
+                        )
+                        .properties(width=260, height=220)
+                    )
+                    st.altair_chart(pie2, use_container_width=False)
+
+                # --- Row 2: bars (left axis = sum, right axis = % share)
+                l1, l2 = st.columns(2)
+
+                with l1:
+                    st.subheader("By expiry — sum & share % (currency filter applied)")
+                    base = alt.Chart(exp_agg).encode(x=alt.X("expiry_str:N", title="Expiry")).properties(height=320)
+                    bars = base.mark_bar().encode(
+                        y=alt.Y("up_sum:Q", title="Unearned premium (sum)", axis=alt.Axis(format=",.0f")),
+                        tooltip=[
+                            alt.Tooltip("expiry_str:N", title="Expiry"),
+                            alt.Tooltip("up_sum:Q", title="Sum", format=",.2f"),
+                            alt.Tooltip("share_pct:Q", title="Share %", format=",.2f"),
+                        ],
+                    )
+                    line = base.mark_line(point=True, color="red").encode(
+                        y=alt.Y("share_pct:Q", title="Share of total (%)")
+                    )
+                    st.altair_chart(alt.layer(bars, line).resolve_scale(y='independent'), use_container_width=True)
+
+                with l2:
+                    st.subheader("By ticker — sum & share % (currency filter applied)")
+                    base_t = alt.Chart(tic_agg).encode(x=alt.X("ticker:N", title="Ticker")).properties(height=320)
+                    bars_t = base_t.mark_bar().encode(
+                        y=alt.Y("up_sum:Q", title="Unearned premium (sum)", axis=alt.Axis(format=",.0f")),
+                        tooltip=[
+                            alt.Tooltip("ticker:N", title="Ticker"),
+                            alt.Tooltip("up_sum:Q", title="Sum", format=",.2f"),
+                            alt.Tooltip("share_pct:Q", title="Share %", format=",.2f"),
+                        ],
+                    )
+                    line_t = base_t.mark_line(point=True, color="red").encode(
+                        y=alt.Y("share_pct:Q", title="Share of total (%)")
+                    )
+                    st.altair_chart(alt.layer(bars_t, line_t).resolve_scale(y='independent'), use_container_width=True)
+
+            # ===================== RIGHT SIDE =====================
             with right:
                 st.subheader("Summary")
 
-                # Counts podľa buy/sell a put/call
+                # Simple counts by side/type (left as-is as per your request)
                 def _count(side, opttype):
                     mask = (df_opt.get("buy/sell") == side) & (df_opt.get("put/call") == opttype)
                     return int(mask.sum())
@@ -446,7 +575,7 @@ elif page == "Open option positions":
                     height=190,
                 )
 
-                # Capital blocked totals len pre short puts
+                # Totals (kept as-is)
                 df_sp = df_opt[
                     (df_opt.get("buy/sell") == "SELL") &
                     (df_opt.get("put/call") == "Put")
@@ -455,7 +584,7 @@ elif page == "Open option positions":
                 cap_tot = (
                     df_sp.assign(_cc=df_sp.get("currencyprimary", ""))
                          .groupby("_cc", dropna=False)["capital blocked"]
-                         .apply(lambda s: s.abs().sum())   # alebo .sum() ak chceš znamienko
+                         .apply(lambda s: s.abs().sum())
                          .reindex(["USD","EUR"])
                          .fillna(0.0)
                          .round(2)
@@ -492,7 +621,7 @@ elif page == "Open option positions":
                     height=220,
                 )
 
-                # Capital blocked by expiry (len short puts)
+                # By expiry (kept as-is)
                 exp_sp = df_sp.copy()
                 exp_sp["expiry_str"] = exp_sp["expiry_dt"].dt.strftime("%Y-%m-%d")
                 cap_by_exp = (
@@ -504,7 +633,6 @@ elif page == "Open option positions":
                           .rename(columns={"expiry_str": "expiry"})
                 )
 
-                # Unearned premium by expiry (všetky)
                 exp_all = df_opt.copy()
                 exp_all["expiry_str"] = exp_all["expiry_dt"].dt.strftime("%Y-%m-%d")
                 up_by_exp = (
@@ -542,8 +670,7 @@ elif page == "Open option positions":
                     height=220,
                 )
 
-
-            # --------- SHOW DETAILS (podľa description)
+            # --------- SHOW DETAILS (by description)
             st.markdown("---")
             show_details = st.checkbox("Show details")
             if show_details and not df_opt.empty:
@@ -552,7 +679,7 @@ elif page == "Open option positions":
                 details.columns = [c.lower() for c in details.columns]
                 details = details[details.get("description") == sel]
 
-                # zoradenie podľa najvhodnejšieho dátumu
+                # Sort by best available date column
                 date_candidates = [c for c in ("date", "tradedate", "settledate", "lasttradingday") if c in details.columns]
                 if date_candidates:
                     sort_col = date_candidates[0]
@@ -563,10 +690,9 @@ elif page == "Open option positions":
                             pass
                     details = details.sort_values(sort_col, ascending=False)
 
-                # zobrazíme pôvodné riadky (plné detaily)
                 st.dataframe(details, use_container_width=True, hide_index=True)
 
-# --- STRÁNKA: Nastavenia
+# ========================= PAGE: Settings =========================
 else:
-    st.header("Nastavenia")
-    st.info("Tu budú konfiguračné možnosti aplikácie.")
+    st.header("Settings")
+    st.info("Configuration options will be here.")
