@@ -42,31 +42,19 @@ def load_dividends() -> pd.DataFrame:
 def load_transactions() -> pd.DataFrame:
     engine = create_engine(DB_URL)
     df = pd.read_sql(f"SELECT * FROM {TABLE_TRANSACTIONS}", engine)
+    df.columns = [c.lower() for c in df.columns]
     return df
 
 df_divi = load_dividends()
 df_tx   = load_transactions()
 
 # --- Basic cleanup for dividends
-df_divi["amount"] = pd.to_numeric(df_divi["amount"], errors="coerce")
-df_divi.replace([np.inf, -np.inf], np.nan, inplace=True)
-df_divi["amount"] = df_divi["amount"].fillna(0)
+if not df_divi.empty:
+    df_divi["amount"] = pd.to_numeric(df_divi.get("amount", 0), errors="coerce")
+    df_divi.replace([np.inf, -np.inf], np.nan, inplace=True)
+    df_divi["amount"] = df_divi["amount"].fillna(0)
 
-# --- Normalize transaction columns
-df_tx.columns = [c.lower() for c in df_tx.columns]
-
-# --- Ticker mapping (optional)
-TICKER_FIX = {
-    "VNA": "VNA.DE", "VNA.DIV": "VNA.DE", "VNA.DRTS": "VNA.DE", "VNA.DVD": "VNA.DE", "VNA.DVRTS": "VNA.DE",
-    "DIC": "BRNK.DE", "DIC.DIV": "BRNK.DE", "BRNK": "BRNK.DE",
-    "LI": "LI.PA", "RWE": "RWE.DE", "BYG": "BYG.L", "TKA": "TKA.DE", "TUI1": "TUI1.DE",
-}
-if "symbol" in df_divi.columns:
-    df_divi["symbol"] = df_divi["symbol"].replace(TICKER_FIX)
-if "underlyingsymbol" in df_tx.columns:
-    df_tx["underlyingsymbol"] = df_tx["underlyingsymbol"].replace(TICKER_FIX)
-
-# ========================= PAGE: Dividends Overview =========================
+# --- PAGE: Dividends Overview
 if page == "📊 Dividends Overview":
     st.title("Dividends overview")
 
@@ -74,7 +62,7 @@ if page == "📊 Dividends Overview":
         st.warning("The dividends table is empty.")
     else:
         # Dates & helpers
-        df_divi['settledate'] = pd.to_datetime(df_divi['settledate'], format='%Y%m%d')
+        df_divi['settledate'] = pd.to_datetime(df_divi['settledate'], format='%Y%m%d', errors='coerce')
         df_divi['month']      = df_divi['settledate'].dt.strftime('%b')
         df_divi['year']       = df_divi['settledate'].dt.year
         df_divi['settledate_str'] = df_divi['settledate'].dt.strftime('%m/%d/%Y')
@@ -97,7 +85,7 @@ if page == "📊 Dividends Overview":
             # ----- Tab 1: Year
             with tab1:
                 st.subheader("Summary by Year & Currency")
-                summary = df_divi.groupby(['year','currency'])['amount'].sum().reset_index()
+                summary = df_divi.groupby(['year','currency'], dropna=False)['amount'].sum().reset_index()
 
                 chart = (
                     alt.Chart(summary)
@@ -152,11 +140,11 @@ if page == "📊 Dividends Overview":
             # ----- Tab 2: Quarter
             with tab2:
                 st.subheader("Summary by Quarter & Currency")
-                year_options = sorted(df_divi['year'].unique())
+                year_options = sorted(df_divi['year'].dropna().unique())
                 selected_year = st.selectbox(
                     "Select year:",
                     options=year_options,
-                    index=len(year_options) - 1,
+                    index=len(year_options) - 1 if len(year_options) else 0,
                     key="sel_year"
                 )
                 st.markdown(f"""
@@ -168,7 +156,7 @@ if page == "📊 Dividends Overview":
                 df_y = df_divi[df_divi['year'] == selected_year].copy()
                 df_y['quarter'] = 'Q' + df_y['settledate'].dt.quarter.astype(str)
 
-                summary_q = df_y.groupby(['quarter', 'currency'], as_index=False)['amount'].sum()
+                summary_q = df_y.groupby(['quarter', 'currency'], as_index=False, dropna=False)['amount'].sum()
                 order_q = ['Q1', 'Q2', 'Q3', 'Q4']
                 summary_q['quarter'] = pd.Categorical(summary_q['quarter'], categories=order_q, ordered=True)
                 summary_q = summary_q.sort_values('quarter')
@@ -321,7 +309,7 @@ elif page == "Open option positions":
             df_opt = df_tx.copy()
 
             # Keep only options
-            df_opt["assetclass"] = df_opt["assetclass"].astype(str).str.upper()
+            df_opt["assetclass"] = df_opt["assetclass"].astype(str).str.upper().str.strip()
             df_opt = df_opt[df_opt["assetclass"] == "OPT"]
 
             # Normalize numeric columns
@@ -329,10 +317,17 @@ elif page == "Open option positions":
                 if col in df_opt.columns:
                     df_opt[col] = pd.to_numeric(df_opt[col], errors="coerce").fillna(0.0)
 
+            # Normalize side/type
             if "buy/sell" in df_opt.columns:
                 df_opt["buy/sell"] = df_opt["buy/sell"].astype(str).str.upper().str.strip()
             if "put/call" in df_opt.columns:
                 df_opt["put/call"] = df_opt["put/call"].astype(str).str.upper().str.strip()
+
+            # --- Normalize currency column & detect its name
+            # We support either `currencyprimary` or `currency`
+            CUR_COL = "currencyprimary" if "currencyprimary" in df_opt.columns else ("currency" if "currency" in df_opt.columns else None)
+            if CUR_COL is not None:
+                df_opt[CUR_COL] = df_opt[CUR_COL].astype(str).str.upper().str.strip()
 
             # Net filter: keep descriptions with non-zero net quantity
             net_by_desc = (
@@ -377,16 +372,11 @@ elif page == "Open option positions":
             # ===================== LEFT SIDE =====================
             with left:
                 display_cols = [
-                    "description",
-                    "put/call",
-                    "quantity",
-                    "strike",
-                    "premium",
-                    "unearned_premium",
-                    "DTE",
-                    "capital blocked",
-                    "currencyprimary",
+                    "description","put/call","quantity","strike","premium","unearned_premium",
+                    "DTE","capital blocked"
                 ]
+                if CUR_COL is not None:
+                    display_cols.append(CUR_COL)
                 display_cols = [c for c in display_cols if c in df_opt.columns]
 
                 # Sort by expiry (DTE) then by description
@@ -395,31 +385,31 @@ elif page == "Open option positions":
                     df_opt = df_opt.sort_values(sort_cols, ascending=[True, True] if len(sort_cols) == 2 else True)
 
                 st.subheader("Positions")
+                col_config = {
+                    "description":        st.column_config.TextColumn("description"),
+                    "put/call":           st.column_config.TextColumn("put/call"),
+                    "quantity":           st.column_config.NumberColumn("quantity", format="%.2f"),
+                    "strike":             st.column_config.NumberColumn("strike", format="%.2f"),
+                    "premium":            st.column_config.NumberColumn("premium", format="%.2f"),
+                    "unearned_premium":   st.column_config.NumberColumn("unearned premium", format="%.2f"),
+                    "DTE":                st.column_config.NumberColumn("DTE", format="%d"),
+                    "capital blocked":    st.column_config.NumberColumn("capital blocked", format="%.2f"),
+                }
+                if CUR_COL is not None:
+                    col_config[CUR_COL] = st.column_config.TextColumn("currency")
+
                 st.dataframe(
                     df_opt[display_cols],
                     use_container_width=True,
                     hide_index=True,
-                    column_config={
-                        "description":        st.column_config.TextColumn("description"),
-                        "put/call":           st.column_config.TextColumn("put/call"),
-                        "quantity":           st.column_config.NumberColumn("quantity", format="%.2f"),
-                        "strike":             st.column_config.NumberColumn("strike", format="%.2f"),
-                        "premium":            st.column_config.NumberColumn("premium", format="%.2f"),
-                        "unearned_premium":   st.column_config.NumberColumn("unearned premium", format="%.2f"),
-                        "DTE":                st.column_config.NumberColumn("DTE", format="%d"),
-                        "capital blocked":    st.column_config.NumberColumn("capital blocked", format="%.2f"),
-                        "currencyprimary":    st.column_config.TextColumn("currency"),
-                    },
+                    column_config=col_config,
                 )
 
                 # ======== VISUALS ========
                 st.markdown("### Visuals")
 
                 # --- Currency filter (affects all visuals below)
-                # If nothing is selected, default to all currencies present.
-                cur_options = sorted(df_opt.get("currencyprimary", pd.Series(dtype=str)).dropna().unique().tolist())
-                if len(cur_options) == 0:
-                    cur_options = []
+                cur_options = sorted(df_opt.get(CUR_COL, pd.Series(dtype=str)).dropna().unique().tolist()) if CUR_COL else []
                 selected_curs = st.multiselect(
                     "Filter by currency (affects pies and charts below):",
                     options=cur_options,
@@ -427,29 +417,29 @@ elif page == "Open option positions":
                     key="cur_filter_openopts"
                 )
 
-                if selected_curs:
-                    df_vis = df_opt[df_opt.get("currencyprimary").isin(selected_curs)].copy()
+                if selected_curs and CUR_COL:
+                    df_vis = df_opt[df_opt[CUR_COL].isin(selected_curs)].copy()
                 else:
-                    # If user deselects all, treat it as "no filter" to avoid empty visuals
                     df_vis = df_opt.copy()
 
                 # Short puts subset (for capital blocked)
                 df_sp_vis = df_vis[(df_vis.get("buy/sell") == "SELL") & (df_vis.get("put/call") == "Put")].copy()
 
                 # --- Aggregations for pies
-                up_by_cc = (
-                    df_vis.assign(cc=df_vis.get("currencyprimary", ""))
-                          .groupby("cc", dropna=False)["unearned_premium"]
-                          .sum().reset_index()
-                          .rename(columns={"cc": "currency", "unearned_premium": "up_sum"})
-                )
-
-                cb_by_cc = (
-                    df_sp_vis.assign(cc=df_sp_vis.get("currencyprimary", ""))
-                             .groupby("cc", dropna=False)["capital blocked"]
-                             .apply(lambda s: s.abs().sum()).reset_index()
-                             .rename(columns={"cc": "currency", "capital blocked": "cb_sum"})
-                )
+                if CUR_COL:
+                    up_by_cc = (
+                        df_vis.groupby(CUR_COL, dropna=False)["unearned_premium"]
+                              .sum().reset_index().rename(columns={CUR_COL: "currency", "unearned_premium": "up_sum"})
+                    )
+                    cb_by_cc = (
+                        df_sp_vis.groupby(CUR_COL, dropna=False)["capital blocked"]
+                                 .apply(lambda s: s.abs().sum()).reset_index()
+                                 .rename(columns={CUR_COL: "currency", "capital blocked": "cb_sum"})
+                    )
+                else:
+                    # Fallback if no currency column exists
+                    up_by_cc = pd.DataFrame({"currency": ["N/A"], "up_sum": [df_vis["unearned_premium"].sum()]})
+                    cb_by_cc = pd.DataFrame({"currency": ["N/A"], "cb_sum": [df_sp_vis["capital blocked"].abs().sum()]})
 
                 # --- Percent shares by EXPIRY: share of total unearned premium (within selected currencies)
                 exp_agg = (
@@ -547,7 +537,6 @@ elif page == "Open option positions":
             with right:
                 st.subheader("Summary")
 
-                # Simple counts by side/type (left as-is as per your request)
                 def _count(side, opttype):
                     mask = (df_opt.get("buy/sell") == side) & (df_opt.get("put/call") == opttype)
                     return int(mask.sum())
@@ -575,43 +564,33 @@ elif page == "Open option positions":
                     height=190,
                 )
 
-                # Totals (kept as-is)
-                df_sp = df_opt[
-                    (df_opt.get("buy/sell") == "SELL") &
-                    (df_opt.get("put/call") == "Put")
-                ].copy()
+                # Capital blocked & unearned premium totals by currency (show USD/EUR if present)
+                if CUR_COL:
+                    df_sp_all = df_opt[(df_opt.get("buy/sell") == "SELL") & (df_opt.get("put/call") == "Put")].copy()
+                    cap_tot = (
+                        df_sp_all.groupby(CUR_COL, dropna=False)["capital blocked"]
+                                 .apply(lambda s: s.abs().sum())
+                    )
+                    up_tot = (
+                        df_opt.groupby(CUR_COL, dropna=False)["unearned_premium"]
+                              .sum()
+                    )
+                    # Try to present in common order
+                    order = [c for c in ["USD", "EUR"] if c in cap_tot.index.union(up_tot.index)]
+                    cap_tot = cap_tot.reindex(order).fillna(0.0).round(2)
+                    up_tot  = up_tot.reindex(order).fillna(0.0).round(2)
 
-                cap_tot = (
-                    df_sp.assign(_cc=df_sp.get("currencyprimary", ""))
-                         .groupby("_cc", dropna=False)["capital blocked"]
-                         .apply(lambda s: s.abs().sum())
-                         .reindex(["USD","EUR"])
-                         .fillna(0.0)
-                         .round(2)
-                )
-                up_tot = (
-                    df_opt.assign(_cc=df_opt.get("currencyprimary", ""))
-                         .groupby("_cc", dropna=False)["unearned_premium"]
-                         .sum()
-                         .reindex(["USD","EUR"])
-                         .fillna(0.0)
-                         .round(2)
-                )
+                    totals_df = pd.DataFrame({
+                        "Metric": [f"Capital blocked total ({c})" for c in order] +
+                                  [f"Unearned premium total ({c})" for c in order],
+                        "Value":  list(cap_tot.values) + list(up_tot.values),
+                    })
+                else:
+                    totals_df = pd.DataFrame({
+                        "Metric": ["Capital blocked total", "Unearned premium total"],
+                        "Value":  [df_opt["capital blocked"].abs().sum(), df_opt["unearned_premium"].sum()],
+                    })
 
-                totals_df = pd.DataFrame({
-                    "Metric": [
-                        "Capital blocked total (USD)",
-                        "Capital blocked total (EUR)",
-                        "Unearned premium total (USD)",
-                        "Unearned premium total (EUR)",
-                    ],
-                    "Value": [
-                        cap_tot.get("USD", 0.0),
-                        cap_tot.get("EUR", 0.0),
-                        up_tot.get("USD", 0.0),
-                        up_tot.get("EUR", 0.0),
-                    ],
-                })
                 st.dataframe(
                     totals_df,
                     hide_index=True,
@@ -621,54 +600,44 @@ elif page == "Open option positions":
                     height=220,
                 )
 
-                # By expiry (kept as-is)
-                exp_sp = df_sp.copy()
+                # Tables by expiry (kept)
+                exp_sp = df_opt.copy()
                 exp_sp["expiry_str"] = exp_sp["expiry_dt"].dt.strftime("%Y-%m-%d")
-                cap_by_exp = (
-                    exp_sp.groupby(["expiry_str","currencyprimary"], dropna=False)["capital blocked"]
-                          .apply(lambda s: s.abs().sum())
-                          .unstack("currencyprimary")[["USD","EUR"]]
-                          .fillna(0.0).round(2)
-                          .reset_index()
-                          .rename(columns={"expiry_str": "expiry"})
-                )
+                if CUR_COL:
+                    cap_by_exp = (
+                        exp_sp[exp_sp.get("buy/sell").eq("SELL") & exp_sp.get("put/call").eq("Put")]
+                        .groupby(["expiry_str", CUR_COL], dropna=False)["capital blocked"]
+                        .apply(lambda s: s.abs().sum())
+                        .unstack(CUR_COL)
+                        .fillna(0.0).round(2)
+                        .reset_index()
+                        .rename(columns={"expiry_str": "expiry"})
+                    )
+                    up_by_exp = (
+                        exp_sp.groupby(["expiry_str", CUR_COL], dropna=False)["unearned_premium"]
+                        .sum()
+                        .unstack(CUR_COL)
+                        .fillna(0.0).round(2)
+                        .reset_index()
+                        .rename(columns={"expiry_str": "expiry"})
+                    )
+                else:
+                    cap_by_exp = (
+                        exp_sp[exp_sp.get("buy/sell").eq("SELL") & exp_sp.get("put/call").eq("Put")]
+                        .groupby(["expiry_str"], dropna=False)["capital blocked"]
+                        .apply(lambda s: s.abs().sum())
+                        .reset_index().rename(columns={"capital blocked":"Total"})
+                    )
+                    up_by_exp = (
+                        exp_sp.groupby(["expiry_str"], dropna=False)["unearned_premium"]
+                        .sum().reset_index().rename(columns={"unearned_premium":"Total"})
+                    )
 
-                exp_all = df_opt.copy()
-                exp_all["expiry_str"] = exp_all["expiry_dt"].dt.strftime("%Y-%m-%d")
-                up_by_exp = (
-                    exp_all.groupby(["expiry_str","currencyprimary"], dropna=False)["unearned_premium"]
-                           .sum()
-                           .unstack("currencyprimary")[["USD","EUR"]]
-                           .fillna(0.0).round(2)
-                           .reset_index()
-                           .rename(columns={"expiry_str": "expiry"})
-                )
+                st.markdown("**Capital blocked by expiry**")
+                st.dataframe(cap_by_exp, hide_index=True, use_container_width=True)
 
-                st.markdown("**Capital blocked by expiry (USD / EUR)**")
-                st.dataframe(
-                    cap_by_exp,
-                    hide_index=True,
-                    use_container_width=True,
-                    column_config={
-                        "expiry": st.column_config.TextColumn(),
-                        "USD":    st.column_config.NumberColumn(format="%.2f"),
-                        "EUR":    st.column_config.NumberColumn(format="%.2f"),
-                    },
-                    height=220,
-                )
-
-                st.markdown("**Unearned premium by expiry (USD / EUR)**")
-                st.dataframe(
-                    up_by_exp,
-                    hide_index=True,
-                    use_container_width=True,
-                    column_config={
-                        "expiry": st.column_config.TextColumn(),
-                        "USD":    st.column_config.NumberColumn(format="%.2f"),
-                        "EUR":    st.column_config.NumberColumn(format="%.2f"),
-                    },
-                    height=220,
-                )
+                st.markdown("**Unearned premium by expiry**")
+                st.dataframe(up_by_exp, hide_index=True, use_container_width=True)
 
             # --------- SHOW DETAILS (by description)
             st.markdown("---")
