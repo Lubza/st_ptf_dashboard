@@ -47,7 +47,6 @@ def load_transactions() -> pd.DataFrame:
 
 df_divi = load_dividends()
 df_tx   = load_transactions()
-df_tx_all   = load_transactions()
 
 # --- Basic cleanup for dividends
 if not df_divi.empty:
@@ -288,12 +287,37 @@ if page == "📊 Dividends Overview":
                 )
 
 # ========================= PAGE: Transactions =========================
+# ========================= PAGE: Transactions =========================
 elif page == "📈 Transactions":
     st.header("Transactions overview")
-    if df_tx_all.empty:
+
+    # Load a fresh copy to avoid any accidental filtering done elsewhere
+    df_all = load_transactions()
+
+    if df_all.empty:
         st.warning("No transactions in the table.")
     else:
-        st.dataframe(df_tx_all)
+        # Normalize column names just for display (no row filtering)
+        df_all.columns = [c.lower() for c in df_all.columns]
+
+        # Optional, but handy: quick info badge
+        try:
+            ac = (
+                df_all.get("assetclass")
+                .astype(str)
+                .str.upper()
+                .str.strip()
+                .dropna()
+                .unique()
+                .tolist()
+            )
+            st.caption(f"Showing ALL transactions • Asset classes present: {', '.join(sorted(ac))}")
+        except Exception:
+            st.caption("Showing ALL transactions")
+
+        # Show everything, no filters applied
+        st.dataframe(df_all, use_container_width=True)
+
 
 # ========================= PAGE: Open option positions =========================
 elif page == "Open option positions":
