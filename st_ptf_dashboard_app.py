@@ -47,6 +47,7 @@ def load_transactions() -> pd.DataFrame:
 
 df_divi = load_dividends()
 df_tx   = load_transactions()
+df_tx_all   = load_transactions()
 
 # --- Basic cleanup for dividends
 if not df_divi.empty:
@@ -289,10 +290,10 @@ if page == "📊 Dividends Overview":
 # ========================= PAGE: Transactions =========================
 elif page == "📈 Transactions":
     st.header("Transactions overview")
-    if df_tx.empty:
+    if df_tx_all.empty:
         st.warning("No transactions in the table.")
     else:
-        st.dataframe(df_tx)
+        st.dataframe(df_tx_all)
 
 # ========================= PAGE: Open option positions =========================
 elif page == "Open option positions":
@@ -776,14 +777,6 @@ elif page == "Open stock positions":
                 "unrealized pnl":  st.column_config.TextColumn(),
             }
         )
-
-        # Optional helper to verify open/closed logic
-        with st.expander("Show net quantity per symbol (pivot-style)"):
-            st.dataframe(
-                net_qty.rename(columns={sym_col: "Symbol"}),
-                use_container_width=True,
-                hide_index=True
-            )
 
 # ========================= PAGE: Settings =========================
 else:
