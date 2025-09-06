@@ -21,7 +21,7 @@ TABLE_TRANSACTIONS   = st.secrets["TABLE_TRANSACTIONS"]
 st.sidebar.title("📂 Navigation")
 page = st.sidebar.radio(
     "Go to:",
-    ("📊 Dividends Overview", "📈 Transactions", "Open option positions", "⚙️ Settings"),
+    ("📊 Dividends Overview", "📈 Transactions", "Open option positions", "Open stock positions", "⚙️ Settings"),
     key="nav"
 )
 st.sidebar.markdown("---")
@@ -660,6 +660,130 @@ elif page == "Open option positions":
                     details = details.sort_values(sort_col, ascending=False)
 
                 st.dataframe(details, use_container_width=True, hide_index=True)
+# ========================= PAGE: Open stock positions =========================
+elif page == "Open stock positions":
+    st.header("Open stock positions")
+
+    if df_tx.empty:
+        st.warning("No transactions in the table.")
+    else:
+        # 1) Normalize and validate
+        df = df_tx.copy()
+        df.columns = [c.lower() for c in df.columns]
+
+        sym_col = "symbol" if "symbol" in df.columns else ("underlyingsymbol" if "underlyingsymbol" in df.columns else None)
+        cur_col = "currencyprimary" if "currencyprimary" in df.columns else ("currency" if "currency" in df.columns else None)
+
+        required = ["assetclass", "quantity", "tradeprice"]
+        missing = [c for c in required if c not in df.columns]
+        if sym_col is None:
+            missing.append("symbol (or underlyingsymbol)")
+        if missing:
+            st.error(f"Missing columns in transactions table: {', '.join(missing)}")
+            st.stop()
+
+        # 2) Keep only STK
+        df["assetclass"] = df["assetclass"].astype(str).str.upper().str.strip()
+        df = df[df["assetclass"] == "STK"].copy()
+        if df.empty:
+            st.info("No stock transactions found.")
+            st.stop()
+
+        # 3) Normalize fields
+        df["quantity"]   = pd.to_numeric(df["quantity"], errors="coerce").fillna(0.0)
+        df["tradeprice"] = pd.to_numeric(df["tradeprice"], errors="coerce").fillna(0.0)
+        if cur_col:
+            df[cur_col] = df[cur_col].astype(str).str.upper().str.strip()
+        if "description" not in df.columns:
+            df["description"] = ""
+
+        # 4) Build SIGNED quantity (BUY = +, SELL = −). If buy/sell is missing, assume quantity already signed.
+        if "buy/sell" in df.columns:
+            side = df["buy/sell"].astype(str).str.upper().str.strip()
+            df["signed_qty"] = np.where(side == "SELL", -df["quantity"].abs(), df["quantity"].abs())
+        else:
+            df["signed_qty"] = df["quantity"]
+
+        # 5) First find symbols with non-zero net quantity (pivot logic)
+        net_qty = (
+            df.groupby(sym_col, dropna=False)["signed_qty"]
+              .sum()
+              .rename("net_qty")
+              .reset_index()
+        )
+        open_syms = net_qty[net_qty["net_qty"].round(8) != 0][sym_col].tolist()
+        if not open_syms:
+            st.success("All stock positions are closed (net quantity = 0 for every symbol).")
+            st.stop()
+
+        # 6) Work only with rows for those symbols
+        df_open = df[df[sym_col].isin(open_syms)].copy()
+        df_open["signed_amt"] = df_open["tradeprice"] * df_open["signed_qty"]
+
+        # Representative description per symbol (first non-null)
+        desc_map = (
+            df_open[[sym_col, "description"]]
+            .dropna(subset=["description"])
+            .groupby(sym_col, as_index=False)
+            .agg({"description": "first"})
+        )
+
+        # 7) Aggregate by symbol (+currency)
+        group_cols = [sym_col] + ([cur_col] if cur_col else [])
+        agg = (
+            df_open.groupby(group_cols, dropna=False)
+                   .agg(
+                       Qty=("signed_qty", "sum"),
+                       Cost_base=("signed_amt", "sum"),
+                   )
+                   .reset_index()
+        )
+
+        # 8) Avg price
+        agg["Avg_price"] = np.where(agg["Qty"].round(8) != 0, agg["Cost_base"] / agg["Qty"], np.nan)
+
+        # Attach description
+        agg = agg.merge(desc_map, on=sym_col, how="left")
+
+        # Final columns
+        agg.rename(columns={
+            sym_col: "Symbol",
+            "description": "Description",
+            cur_col if cur_col else "": "currencyprimary"
+        }, inplace=True)
+
+        # Placeholders for now
+        agg["Current price"]  = ""
+        agg["unrealized pnl"] = ""
+
+        # Order & display
+        display_cols = ["Symbol", "Description", "currencyprimary", "Cost_base", "Qty", "Avg_price", "Current price", "unrealized pnl"]
+        display_cols = [c for c in display_cols if c in agg.columns]
+        agg = agg[display_cols].sort_values("Symbol").reset_index(drop=True)
+
+        st.dataframe(
+            agg,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Symbol":          st.column_config.TextColumn(),
+                "Description":     st.column_config.TextColumn(),
+                "currencyprimary": st.column_config.TextColumn("currencyprimary"),
+                "Cost_base":       st.column_config.NumberColumn(format="%.6f"),
+                "Qty":             st.column_config.NumberColumn(format="%.3f"),
+                "Avg_price":       st.column_config.NumberColumn(format="%.6f"),
+                "Current price":   st.column_config.TextColumn(),
+                "unrealized pnl":  st.column_config.TextColumn(),
+            }
+        )
+
+        # Optional helper to verify open/closed logic
+        with st.expander("Show net quantity per symbol (pivot-style)"):
+            st.dataframe(
+                net_qty.rename(columns={sym_col: "Symbol"}),
+                use_container_width=True,
+                hide_index=True
+            )
 
 # ========================= PAGE: Settings =========================
 else:
