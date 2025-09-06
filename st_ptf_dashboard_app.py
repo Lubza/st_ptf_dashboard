@@ -3,6 +3,7 @@ import pandas as pd
 from sqlalchemy import create_engine
 import altair as alt
 import numpy as np
+import yfinance as yf
 
 st.set_page_config(layout="wide")
 
@@ -47,6 +48,45 @@ def load_transactions() -> pd.DataFrame:
 
 df_divi = load_dividends()
 df_tx   = load_transactions()
+
+@st.cache_data(ttl=3600)
+def fetch_eod_close(symbols: list[str]) -> pd.DataFrame:
+    """
+    Fetch latest available EOD Close for each Yahoo ticker in `symbols`.
+    Returns DataFrame: columns = ['Symbol', 'Current price'].
+    """
+    if yf is None:
+        return pd.DataFrame({"Symbol": symbols, "Current price": [np.nan]*len(symbols)})
+
+    # unique, non-empty
+    tickers = [s for s in dict.fromkeys([str(s).strip() for s in symbols]) if s]
+    if not tickers:
+        return pd.DataFrame(columns=["Symbol", "Current price"])
+
+    # Pull a short recent window to ensure we get a non-NaN close (e.g., weekends/holidays)
+    data = yf.download(
+        tickers=" ".join(tickers),
+        period="10d",
+        interval="1d",
+        group_by="ticker",
+        auto_adjust=False,
+        threads=True,
+        progress=False,
+    )
+
+    closes = []
+    for t in tickers:
+        try:
+            if isinstance(data.columns, pd.MultiIndex):  # multiple tickers
+                s = data[(t, "Close")].dropna()
+            else:                                        # single ticker
+                s = data["Close"].dropna()
+            price = float(s.iloc[-1]) if len(s) else np.nan
+        except Exception:
+            price = np.nan
+        closes.append({"Symbol": t, "Current price": price})
+
+    return pd.DataFrame(closes)
 
 # --- Basic cleanup for dividends
 if not df_divi.empty:
@@ -745,25 +785,29 @@ elif page == "Open stock positions":
         # 8) Avg price
         agg["Avg_price"] = np.where(agg["Qty"].round(8) != 0, agg["Cost_base"] / agg["Qty"], np.nan)
 
-        # Attach description
+        # attach description
         agg = agg.merge(desc_map, on=sym_col, how="left")
 
-        # Final columns
+        # rename for display
         agg.rename(columns={
             sym_col: "Symbol",
             "description": "Description",
-            cur_col if cur_col else "": "currencyprimary"
+            cur_col if cur_col else "": "currencyprimary",
         }, inplace=True)
 
-        # Placeholders for now
-        agg["Current price"]  = ""
-        agg["unrealized pnl"] = ""
+        # 9) Fetch Yahoo EOD current prices and compute P&L
+        prices_df = fetch_eod_close(agg["Symbol"].tolist())
+        agg = agg.merge(prices_df, on="Symbol", how="left")
 
-        # Order & display
+        # Unrealized P&L = (Current price - Avg_price) * Qty
+        agg["unrealized pnl"] = (pd.to_numeric(agg["Current price"], errors="coerce") - agg["Avg_price"]) * agg["Qty"]
+
+        # Order columns as desired
         display_cols = ["Symbol", "Description", "currencyprimary", "Cost_base", "Qty", "Avg_price", "Current price", "unrealized pnl"]
         display_cols = [c for c in display_cols if c in agg.columns]
         agg = agg[display_cols].sort_values("Symbol").reset_index(drop=True)
 
+        # Format
         st.dataframe(
             agg,
             use_container_width=True,
@@ -775,10 +819,18 @@ elif page == "Open stock positions":
                 "Cost_base":       st.column_config.NumberColumn(format="%.6f"),
                 "Qty":             st.column_config.NumberColumn(format="%.3f"),
                 "Avg_price":       st.column_config.NumberColumn(format="%.6f"),
-                "Current price":   st.column_config.TextColumn(),
-                "unrealized pnl":  st.column_config.TextColumn(),
+                "Current price":   st.column_config.NumberColumn(format="%.6f"),
+                "unrealized pnl":  st.column_config.NumberColumn(format="%.6f"),
             }
         )
+
+        # helper: show the net-qty pivot so you can verify the open/closed logic
+        with st.expander("Show net quantity per symbol (pivot-style)"):
+            st.dataframe(
+                net_qty.rename(columns={sym_col: "Symbol"}),
+                use_container_width=True,
+                hide_index=True
+            )
 
 # ========================= PAGE: Settings =========================
 else:
