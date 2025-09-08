@@ -74,6 +74,10 @@ def fetch_eod_close(symbols: list[str]) -> pd.DataFrame:
         progress=False,
     )
 
+    # tickery, ktoré chceme deliť 100 (GBp -> základná mena)
+    div_by_100 = { "BYG.L" }
+    div_by_100_upper = {s.upper() for s in div_by_100}
+
     closes = []
     for t in tickers:
         try:
@@ -84,6 +88,11 @@ def fetch_eod_close(symbols: list[str]) -> pd.DataFrame:
             price = float(s.iloc[-1]) if len(s) else np.nan
         except Exception:
             price = np.nan
+
+        # --- konverzia hneď po stiahnutí ---
+        if t.upper() in div_by_100_upper and pd.notna(price):
+            price = price / 100.0
+
         closes.append({"Symbol": t, "Current price": price})
 
     return pd.DataFrame(closes)
