@@ -807,22 +807,27 @@ elif page == "Open stock positions":
         display_cols = [c for c in display_cols if c in agg.columns]
         agg = agg[display_cols].sort_values("Symbol").reset_index(drop=True)
 
-        # Format
+        # === LAST STEP: round numbers to 2 decimals only for display ===
+        agg_disp = agg.copy()
+        num_cols = agg_disp.select_dtypes(include=["number"]).columns
+        agg_disp[num_cols] = agg_disp[num_cols].round(2)
+
         st.dataframe(
-            agg,
+            agg_disp,
             use_container_width=True,
             hide_index=True,
             column_config={
                 "Symbol":          st.column_config.TextColumn(),
                 "Description":     st.column_config.TextColumn(),
                 "currencyprimary": st.column_config.TextColumn("currencyprimary"),
-                "Cost_base":       st.column_config.NumberColumn(format="%.6f"),
-                "Qty":             st.column_config.NumberColumn(format="%.3f"),
-                "Avg_price":       st.column_config.NumberColumn(format="%.6f"),
-                "Current price":   st.column_config.NumberColumn(format="%.6f"),
-                "unrealized pnl":  st.column_config.NumberColumn(format="%.6f"),
+                "Cost_base":       st.column_config.NumberColumn(format="%.2f"),
+                "Qty":             st.column_config.NumberColumn(format="%.2f"),
+                "Avg_price":       st.column_config.NumberColumn(format="%.2f"),
+                "Current price":   st.column_config.NumberColumn(format="%.2f"),
+                "unrealized pnl":  st.column_config.NumberColumn(format="%.2f"),
             }
         )
+
 
         # helper: show the net-qty pivot so you can verify the open/closed logic
         with st.expander("Show net quantity per symbol (pivot-style)"):
