@@ -17,12 +17,21 @@ RIGHT_TABLE_H     = 260
 DB_URL               = st.secrets["DB_URL"]
 TABLE_DIVI           = st.secrets["TABLE_DIVI"]
 TABLE_TRANSACTIONS   = st.secrets["TABLE_TRANSACTIONS"]
+VIEW_REALIZED_FIFO = st.secrets["VIEW_REALIZED_FIFO"]
+VIEW_REALIZED_LIFO = st.secrets["VIEW_REALIZED_LIFO"]
+VIEW_REALIZED_ALL  = st.secrets["VIEW_REALIZED_ALL"]
+
 
 # --- SIDEBAR
 st.sidebar.title("📂 Navigation")
 page = st.sidebar.radio(
     "Go to:",
-    ("📊 Dividends Overview", "📈 Transactions", "Open option positions", "Open stock positions", "⚙️ Settings"),
+    ("📊 Dividends Overview",
+     "📈 Transactions",
+     "Open option positions",
+     "Open stock positions",
+     "Closed positions / realized PnL"
+     "⚙️ Settings"),
     key="nav"
 )
 st.sidebar.markdown("---")
