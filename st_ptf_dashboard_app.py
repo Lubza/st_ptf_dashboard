@@ -106,6 +106,13 @@ def fetch_eod_close(symbols: list[str]) -> pd.DataFrame:
 
     return pd.DataFrame(closes)
 
+@st.cache_data(ttl=300)
+def load_realized(view_name: str) -> pd.DataFrame:
+    engine = create_engine(DB_URL)
+    df = pd.read_sql(f"SELECT * FROM {view_name}", engine)
+    df.columns = [c.lower() for c in df.columns]
+    return df
+
 # --- Basic cleanup for dividends
 if not df_divi.empty:
     df_divi["amount"] = pd.to_numeric(df_divi.get("amount", 0), errors="coerce")
