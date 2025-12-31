@@ -37,7 +37,8 @@ page = st.sidebar.radio(
      "Open option positions",
      "Open stock positions",
      "📒 Closed positions / realized PnL",
-     "⚙️ Settings"),
+     "⚙️ Settings",
+    ),
     key="nav"
 )
 st.sidebar.markdown("---")
