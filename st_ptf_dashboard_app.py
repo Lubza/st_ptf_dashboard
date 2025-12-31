@@ -21,6 +21,12 @@ VIEW_REALIZED_FIFO = st.secrets["VIEW_REALIZED_FIFO"]
 VIEW_REALIZED_LIFO = st.secrets["VIEW_REALIZED_LIFO"]
 VIEW_REALIZED_ALL  = st.secrets["VIEW_REALIZED_ALL"]
 
+# --- refactor
+@st.cache_resource
+def get_engine():
+    return create_engine(DB_URL, pool_pre_ping=True)
+
+engine = get_engine()
 
 # --- SIDEBAR
 st.sidebar.title("📂 Navigation")
@@ -30,7 +36,7 @@ page = st.sidebar.radio(
      "📈 Transactions",
      "Open option positions",
      "Open stock positions",
-     "Closed positions / realized PnL",
+     "📒 Closed positions / realized PnL",
      "⚙️ Settings"),
     key="nav"
 )
@@ -43,14 +49,12 @@ st.sidebar.info("You can add more sections or filters here.")
 # --- DATA LOADERS
 @st.cache_data(ttl=600)
 def load_dividends() -> pd.DataFrame:
-    engine = create_engine(DB_URL)
     df = pd.read_sql(f"SELECT * FROM {TABLE_DIVI}", engine)
     df.columns = [c.lower() for c in df.columns]
     return df
 
 @st.cache_data(ttl=600)
 def load_transactions() -> pd.DataFrame:
-    engine = create_engine(DB_URL)
     df = pd.read_sql(f"SELECT * FROM {TABLE_TRANSACTIONS}", engine)
     df.columns = [c.lower() for c in df.columns]
     return df
@@ -108,7 +112,6 @@ def fetch_eod_close(symbols: list[str]) -> pd.DataFrame:
 
 @st.cache_data(ttl=300)
 def load_realized(view_name: str) -> pd.DataFrame:
-    engine = create_engine(DB_URL)
     df = pd.read_sql(f"SELECT * FROM {view_name}", engine)
     df.columns = [c.lower() for c in df.columns]
     return df
@@ -360,7 +363,7 @@ elif page == "📈 Transactions":
     else: 
         st.dataframe(df_tx)
 # ========================= PAGE: Closed positions / Realized PnL =========================
-elif page == "📒 Lots / Realized PnL":
+elif page == "📒 Closed positions / realized PnL":
     st.header("Lots — Realized PnL (FIFO / LIFO)")
 
     method = st.radio("Method", ["FIFO", "LIFO", "ALL"], horizontal=True)
@@ -393,13 +396,13 @@ elif page == "📒 Lots / Realized PnL":
         sel_asset = st.multiselect("Asset class", options=asset_opts, default=[])
 
     with c3:
-        if "close_date" in df_rlz.columns:
-            min_d = df_rlz["close_date"].min()
-            max_d = df_rlz["close_date"].max()
-            date_rng = st.date_input("Close date range", value=(min_d.date() if pd.notna(min_d) else None,
-                                                              max_d.date() if pd.notna(max_d) else None))
+        date_rng = None
+        if "close_date" in df_rlz.columns and df_rlz["close_date"].notna().any():
+            min_d = df_rlz["close_date"].min().date()
+            max_d = df_rlz["close_date"].max().date()
+            date_rng = st.date_input("Close date range", value=(min_d, max_d))
         else:
-            date_rng = None
+            st.caption("No close_date values available.")
 
     with c4:
         group_mode = st.selectbox("Group by", ["None", "Month", "Year"], index=1)
