@@ -30,7 +30,7 @@ page = st.sidebar.radio(
      "📈 Transactions",
      "Open option positions",
      "Open stock positions",
-     "Closed positions / realized PnL"
+     "Closed positions / realized PnL",
      "⚙️ Settings"),
     key="nav"
 )
@@ -352,7 +352,6 @@ if page == "📊 Dividends Overview":
                 )
 
 # ========================= PAGE: Transactions =========================
-# ========================= PAGE: Transactions =========================
 elif page == "📈 Transactions":
     st.header("Transactions overview")
 
@@ -360,6 +359,111 @@ elif page == "📈 Transactions":
         st.warning("No transactions in the table.") 
     else: 
         st.dataframe(df_tx)
+# ========================= PAGE: Closed positions / Realized PnL =========================
+elif page == "📒 Lots / Realized PnL":
+    st.header("Lots — Realized PnL (FIFO / LIFO)")
+
+    method = st.radio("Method", ["FIFO", "LIFO", "ALL"], horizontal=True)
+
+    view_map = {
+        "FIFO": VIEW_REALIZED_FIFO,
+        "LIFO": VIEW_REALIZED_LIFO,
+        "ALL":  VIEW_REALIZED_ALL,
+    }
+    df_rlz = load_realized(view_map[method])
+
+    if df_rlz.empty:
+        st.info("No realized lot matches in this view yet.")
+        st.stop()
+
+    # --- normalize dates
+    for c in ["open_date", "close_date", "created_at"]:
+        if c in df_rlz.columns:
+            df_rlz[c] = pd.to_datetime(df_rlz[c], errors="coerce")
+
+    # --- filters
+    c1, c2, c3, c4 = st.columns([1.2, 1.0, 1.0, 1.0])
+
+    with c1:
+        instruments = sorted(df_rlz["instrument"].dropna().unique().tolist()) if "instrument" in df_rlz.columns else []
+        sel_instr = st.multiselect("Instrument", options=instruments, default=[])
+
+    with c2:
+        asset_opts = sorted(df_rlz["asset_class"].dropna().unique().tolist()) if "asset_class" in df_rlz.columns else []
+        sel_asset = st.multiselect("Asset class", options=asset_opts, default=[])
+
+    with c3:
+        if "close_date" in df_rlz.columns:
+            min_d = df_rlz["close_date"].min()
+            max_d = df_rlz["close_date"].max()
+            date_rng = st.date_input("Close date range", value=(min_d.date() if pd.notna(min_d) else None,
+                                                              max_d.date() if pd.notna(max_d) else None))
+        else:
+            date_rng = None
+
+    with c4:
+        group_mode = st.selectbox("Group by", ["None", "Month", "Year"], index=1)
+
+    df_f = df_rlz.copy()
+    if sel_instr and "instrument" in df_f.columns:
+        df_f = df_f[df_f["instrument"].isin(sel_instr)]
+    if sel_asset and "asset_class" in df_f.columns:
+        df_f = df_f[df_f["asset_class"].isin(sel_asset)]
+    if date_rng and "close_date" in df_f.columns and len(date_rng) == 2 and date_rng[0] and date_rng[1]:
+        start = pd.to_datetime(date_rng[0])
+        end   = pd.to_datetime(date_rng[1]) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+        df_f = df_f[(df_f["close_date"] >= start) & (df_f["close_date"] <= end)]
+
+    # --- KPI
+    total_realized = pd.to_numeric(df_f.get("realized_pnl", 0), errors="coerce").fillna(0).sum()
+    trades_cnt = len(df_f)
+    st.metric("Total realized PnL", f"{total_realized:,.2f}")
+    st.caption(f"Rows: {trades_cnt}")
+
+    # --- Aggregation chart (optional)
+    if group_mode != "None" and "close_date" in df_f.columns:
+        tmp = df_f.copy()
+        tmp["realized_pnl"] = pd.to_numeric(tmp["realized_pnl"], errors="coerce").fillna(0)
+
+        if group_mode == "Month":
+            tmp["period"] = tmp["close_date"].dt.to_period("M").dt.to_timestamp()
+        else:
+            tmp["period"] = tmp["close_date"].dt.to_period("Y").dt.to_timestamp()
+
+        agg = tmp.groupby("period", as_index=False)["realized_pnl"].sum().sort_values("period")
+
+        chart = (
+            alt.Chart(agg)
+            .mark_bar()
+            .encode(
+                x=alt.X("period:T", title=group_mode),
+                y=alt.Y("realized_pnl:Q", title="Realized PnL"),
+                tooltip=[alt.Tooltip("period:T"), alt.Tooltip("realized_pnl:Q", format=",.2f")]
+            )
+            .properties(height=300)
+        )
+        st.altair_chart(chart, use_container_width=True)
+
+    st.subheader("Details")
+    # nice display ordering (only show if exists)
+    display_cols = [
+        "method","asset_class","instrument","position_side",
+        "open_trade_id","close_trade_id","qty_matched",
+        "open_date","close_date","open_price","close_price",
+        "realized_pnl"
+    ]
+    display_cols = [c for c in display_cols if c in df_f.columns]
+
+    df_disp = df_f[display_cols].copy()
+
+    # round numeric cols for display
+    for c in ["qty_matched","open_price","close_price","realized_pnl"]:
+        if c in df_disp.columns:
+            df_disp[c] = pd.to_numeric(df_disp[c], errors="coerce").round(4)
+
+    st.dataframe(df_disp.sort_values(["close_date","instrument"], ascending=[False, True]) if "close_date" in df_disp.columns else df_disp,
+                 use_container_width=True,
+                 hide_index=True)
 
 
 # ========================= PAGE: Open option positions =========================
