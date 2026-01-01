@@ -365,7 +365,7 @@ elif page == "📈 Transactions":
         st.dataframe(df_tx)
 # ========================= PAGE: Closed positions / Realized PnL =========================
 elif page == "📒 Closed positions / realized PnL":
-    st.header("Lots — Realized PnL (FIFO / LIFO)")
+    st.header("Closed positions / realized PnL")
 
     method = st.radio("Method", ["FIFO", "LIFO", "ALL"], horizontal=True)
 
