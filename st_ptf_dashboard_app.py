@@ -18,8 +18,6 @@ DB_URL               = st.secrets["DB_URL"]
 TABLE_DIVI           = st.secrets["TABLE_DIVI"]
 TABLE_TRANSACTIONS   = st.secrets["TABLE_TRANSACTIONS"]
 VIEW_REALIZED_FIFO = st.secrets["VIEW_REALIZED_FIFO"]
-VIEW_REALIZED_LIFO = st.secrets["VIEW_REALIZED_LIFO"]
-VIEW_REALIZED_ALL  = st.secrets["VIEW_REALIZED_ALL"]
 
 # --- refactor
 @st.cache_resource
