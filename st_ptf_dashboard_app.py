@@ -34,7 +34,7 @@ page = st.sidebar.radio(
      "📈 Transactions",
      "Open option positions",
      "Open stock positions",
-     "📒 Closed positions / realized PnL",
+     "📒 Closed positions / realized PnL (FIFO)",
      "⚙️ Settings",
     ),
     key="nav"
