@@ -367,14 +367,7 @@ elif page == "📈 Transactions":
 elif page == "📒 Closed positions / realized PnL":
     st.header("Closed positions / realized PnL")
 
-    method = st.radio("Method", ["FIFO", "LIFO", "ALL"], horizontal=True)
-
-    view_map = {
-        "FIFO": VIEW_REALIZED_FIFO,
-        "LIFO": VIEW_REALIZED_LIFO,
-        "ALL":  VIEW_REALIZED_ALL,
-    }
-    df_rlz = load_realized(view_map[method])
+    df_rlz = load_realized(VIEW_REALIZED_FIFO)
 
     if df_rlz.empty:
         st.info("No realized lot matches in this view yet.")
