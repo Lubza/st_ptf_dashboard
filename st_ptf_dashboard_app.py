@@ -362,8 +362,8 @@ elif page == "📈 Transactions":
     else: 
         st.dataframe(df_tx)
 # ========================= PAGE: Closed positions / Realized PnL =========================
-elif page == "📒 Closed positions / realized PnL":
-    st.header("Closed positions / realized PnL")
+elif page == "📒 Closed positions / realized PnL (FIFO)":
+    st.header("Closed positions / realized PnL (FIFO)")
 
     df_rlz = load_realized(VIEW_REALIZED_FIFO)
 
@@ -442,9 +442,17 @@ elif page == "📒 Closed positions / realized PnL":
     st.subheader("Details")
     # nice display ordering (only show if exists)
     display_cols = [
-        "method","asset_class","instrument","position_side",
-        "open_trade_id","close_trade_id","qty_matched",
-        "open_date","close_date","open_price","close_price",
+        #"method",
+        "asset_class",
+        "instrument",
+        "position_side",
+        #"open_trade_id",
+        #"close_trade_id",
+        "qty_matched",
+        "open_date",
+        "close_date",
+        "open_price",
+        "close_price",
         "realized_pnl"
     ]
     display_cols = [c for c in display_cols if c in df_f.columns]
