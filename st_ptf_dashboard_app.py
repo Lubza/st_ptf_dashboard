@@ -125,25 +125,28 @@ if not df_divi.empty:
 if page == "📊 Dividends Overview":
     st.title("Dividends overview")
 
+    # Always define columns (fixes Pylance: col2 not defined)
+    col1, col2 = st.columns([2.7, 1.3])
+
     if df_divi.empty:
-        st.warning("The dividends table is empty.")
+        with col1:
+            st.warning("The dividends table is empty.")
+        with col2:
+            st.info("No data to display.")
     else:
         # Dates & helpers
-        df_divi['settledate'] = pd.to_datetime(df_divi['settledate'], format='%Y%m%d', errors='coerce')
-        df_divi['month']      = df_divi['settledate'].dt.strftime('%b')
-        df_divi['year']       = df_divi['settledate'].dt.year
-        df_divi['settledate_str'] = df_divi['settledate'].dt.strftime('%m/%d/%Y')
+        df_divi["settledate"] = pd.to_datetime(df_divi["settledate"], format="%Y%m%d", errors="coerce")
+        df_divi["month"] = df_divi["settledate"].dt.strftime("%b")
+        df_divi["year"] = df_divi["settledate"].dt.year
+        df_divi["settledate_str"] = df_divi["settledate"].dt.strftime("%m/%d/%Y")
 
-        current_period = pd.Timestamp.today().to_period('M')
-        df_divi_cur = df_divi[df_divi['settledate'].dt.to_period('M') == current_period]
+        current_period = pd.Timestamp.today().to_period("M")
+        df_divi_cur = df_divi[df_divi["settledate"].dt.to_period("M") == current_period]
 
         df_show = (
-            df_divi_cur.sort_values("settledate", ascending=False)
-            [["symbol", "settledate_str", "currency", "amount"]]
+            df_divi_cur.sort_values("settledate", ascending=False)[["symbol", "settledate_str", "currency", "amount"]]
             .reset_index(drop=True)
         )
-
-        col1, col2 = st.columns([2.7, 1.3])
 
         # ----------------------- LEFT COLUMN -----------------------
         with col1:
@@ -152,44 +155,39 @@ if page == "📊 Dividends Overview":
             # ----- Tab 1: Year
             with tab1:
                 st.subheader("Summary by Year & Currency")
-                summary = df_divi.groupby(['year','currency'], dropna=False)['amount'].sum().reset_index()
+                summary = df_divi.groupby(["year", "currency"], dropna=False)["amount"].sum().reset_index()
 
                 chart = (
                     alt.Chart(summary)
                     .mark_bar()
                     .encode(
-                        x=alt.X('year:O', title='Year'),
-                        y=alt.Y('amount:Q', title='Sum of Dividends'),
-                        color=alt.Color('currency:N', title='Currency'),
-                        tooltip=['year','currency','amount']
+                        x=alt.X("year:O", title="Year"),
+                        y=alt.Y("amount:Q", title="Sum of Dividends"),
+                        color=alt.Color("currency:N", title="Currency"),
+                        tooltip=["year", "currency", "amount"],
                     )
                     .properties(width=CHART_WIDTH_LEFT)
                 )
                 st.altair_chart(chart, use_container_width=False)
 
                 st.subheader("Year × Currency")
-                summary_y = df_divi.groupby(['year', 'currency'], as_index=False)['amount'].sum()
-                pivot_y = summary_y.pivot_table(index='currency', columns='year', values='amount',
-                                                aggfunc='sum', fill_value=0)
+                summary_y = df_divi.groupby(["year", "currency"], as_index=False)["amount"].sum()
+                pivot_y = summary_y.pivot_table(index="currency", columns="year", values="amount", aggfunc="sum", fill_value=0)
 
                 year_cols = sorted(pivot_y.columns.tolist())
                 pivot_y = pivot_y.reindex(columns=year_cols)
 
                 row_total = pivot_y[year_cols].sum().to_frame().T
-                row_total.index = ['Total']
+                row_total.index = ["Total"]
                 pivot_y = pd.concat([pivot_y, row_total], axis=0)
 
-                pivot_y.index.name = 'Currency'
-                pivot_y.columns.name = 'Year'
+                pivot_y.index.name = "Currency"
+                pivot_y.columns.name = "Year"
                 display_df = pivot_y.reset_index()
 
-                num_cols = [c for c in display_df.columns if c != 'Currency']
+                num_cols = [c for c in display_df.columns if c != "Currency"]
                 display_df[num_cols] = (
-                    display_df[num_cols]
-                    .apply(pd.to_numeric, errors='coerce')
-                    .fillna(0)
-                    .round(0)
-                    .astype(int)
+                    display_df[num_cols].apply(pd.to_numeric, errors="coerce").fillna(0).round(0).astype(int)
                 )
 
                 st.dataframe(
@@ -200,61 +198,63 @@ if page == "📊 Dividends Overview":
                     height=min(420, 42 * (len(display_df) + 1)),
                     column_config={
                         "Currency": st.column_config.TextColumn(),
-                        **{c: st.column_config.NumberColumn(format="%,d") for c in num_cols}
-                    }
+                        **{c: st.column_config.NumberColumn(format="%,d") for c in num_cols},
+                    },
                 )
 
             # ----- Tab 2: Quarter
             with tab2:
                 st.subheader("Summary by Quarter & Currency")
-                year_options = sorted(df_divi['year'].dropna().unique())
+                year_options = sorted(df_divi["year"].dropna().unique())
                 selected_year = st.selectbox(
                     "Select year:",
                     options=year_options,
                     index=len(year_options) - 1 if len(year_options) else 0,
-                    key="sel_year"
+                    key="sel_year",
                 )
-                st.markdown(f"""
+                st.markdown(
+                    f"""
                     <style>
                     div[data-baseweb="select"] > div {{ width: {CHART_WIDTH_TAB2}px !important; }}
                     </style>
-                """, unsafe_allow_html=True)
+                    """,
+                    unsafe_allow_html=True,
+                )
 
-                df_y = df_divi[df_divi['year'] == selected_year].copy()
-                df_y['quarter'] = 'Q' + df_y['settledate'].dt.quarter.astype(str)
+                df_y = df_divi[df_divi["year"] == selected_year].copy()
+                df_y["quarter"] = "Q" + df_y["settledate"].dt.quarter.astype(str)
 
-                summary_q = df_y.groupby(['quarter', 'currency'], as_index=False, dropna=False)['amount'].sum()
-                order_q = ['Q1', 'Q2', 'Q3', 'Q4']
-                summary_q['quarter'] = pd.Categorical(summary_q['quarter'], categories=order_q, ordered=True)
-                summary_q = summary_q.sort_values('quarter')
+                summary_q = df_y.groupby(["quarter", "currency"], as_index=False, dropna=False)["amount"].sum()
+                order_q = ["Q1", "Q2", "Q3", "Q4"]
+                summary_q["quarter"] = pd.Categorical(summary_q["quarter"], categories=order_q, ordered=True)
+                summary_q = summary_q.sort_values("quarter")
 
                 chart1 = (
                     alt.Chart(summary_q)
                     .mark_bar()
                     .encode(
-                        x=alt.X('quarter:O', sort=order_q, title='Quarter'),
-                        y=alt.Y('amount:Q', title='Sum'),
-                        color=alt.Color('currency:N', title='Currency'),
-                        tooltip=['quarter', 'currency', 'amount']
+                        x=alt.X("quarter:O", sort=order_q, title="Quarter"),
+                        y=alt.Y("amount:Q", title="Sum"),
+                        color=alt.Color("currency:N", title="Currency"),
+                        tooltip=["quarter", "currency", "amount"],
                     )
                     .properties(width=CHART_WIDTH_TAB2)
                 )
                 st.altair_chart(chart1, use_container_width=False)
 
                 pivot = (
-                    summary_q
-                    .assign(quarter=pd.Categorical(summary_q['quarter'], categories=order_q, ordered=True))
-                    .pivot_table(index='currency', columns='quarter', values='amount', aggfunc='sum', fill_value=0)
+                    summary_q.assign(quarter=pd.Categorical(summary_q["quarter"], categories=order_q, ordered=True))
+                    .pivot_table(index="currency", columns="quarter", values="amount", aggfunc="sum", fill_value=0)
                     .reindex(columns=order_q)
                 )
 
-                pivot['Total'] = pivot.sum(axis=1)
+                pivot["Total"] = pivot.sum(axis=1)
                 total_row = pivot.sum(axis=0).to_frame().T
-                total_row.index = ['Total']
+                total_row.index = ["Total"]
                 pivot = pd.concat([pivot, total_row], axis=0)
 
-                pivot.index.name = 'Currency'
-                pivot.columns.name = 'Quarter'
+                pivot.index.name = "Currency"
+                pivot.columns.name = "Quarter"
 
                 st.subheader(f"Quarter × Currency – {selected_year}")
                 display_df = pivot.reset_index()
@@ -265,49 +265,47 @@ if page == "📊 Dividends Overview":
                     use_container_width=False,
                     hide_index=True,
                     height=min(380, 42 * (len(display_df) + 1)),
-                    column_config={
-                        **{c: st.column_config.NumberColumn(format="%.2f") for c in order_q + ['Total']}
-                    }
+                    column_config={**{c: st.column_config.NumberColumn(format="%.2f") for c in order_q + ["Total"]}},
                 )
 
             # ----- Tab 3: Ticker
             with tab3:
                 st.subheader("Summary by Ticker & Year")
-                tics = sorted(df_divi['symbol'].dropna().unique())
+                tics = sorted(df_divi["symbol"].dropna().unique())
                 sel_t = st.multiselect("Choose ticker(s):", options=tics, default=tics[:1], key="sel_t")
 
                 if sel_t:
-                    df_t = df_divi[df_divi['symbol'].isin(sel_t)]
-                    summ_t = df_t.groupby(['year','symbol'])['amount'].sum().reset_index()
+                    df_t = df_divi[df_divi["symbol"].isin(sel_t)]
+                    summ_t = df_t.groupby(["year", "symbol"])["amount"].sum().reset_index()
 
                     chart2 = (
                         alt.Chart(summ_t)
                         .mark_bar()
                         .encode(
-                            x=alt.X('year:O', title='Year'),
-                            y=alt.Y('amount:Q'),
-                            color=alt.Color('symbol:N', title='Ticker'),
-                            tooltip=['year','symbol','amount']
+                            x=alt.X("year:O", title="Year"),
+                            y=alt.Y("amount:Q"),
+                            color=alt.Color("symbol:N", title="Ticker"),
+                            tooltip=["year", "symbol", "amount"],
                         )
                         .properties(width=CHART_WIDTH_TAB3)
                     )
                     st.altair_chart(chart2, use_container_width=False)
 
-                    year_totals = df_t.groupby('year', as_index=False)['amount'].sum()
-                    tmp = year_totals.sort_values('year')
-                    tmp['change'] = tmp['amount'].diff().fillna(0)
-                    year_totals = tmp.sort_values('year', ascending=False)
+                    year_totals = df_t.groupby("year", as_index=False)["amount"].sum()
+                    tmp = year_totals.sort_values("year")
+                    tmp["change"] = tmp["amount"].diff().fillna(0)
+                    year_totals = tmp.sort_values("year", ascending=False)
 
                     st.dataframe(
-                        year_totals.rename(columns={'year': 'Year', 'amount': 'Total', 'change': 'Change'}),
+                        year_totals.rename(columns={"year": "Year", "amount": "Total", "change": "Change"}),
                         width=CHART_WIDTH_TAB3,
                         use_container_width=False,
                         height=min(320, 42 * (len(year_totals) + 1)),
                         column_config={
-                            "Year":  st.column_config.NumberColumn(format="%d"),
+                            "Year": st.column_config.NumberColumn(format="%d"),
                             "Total": st.column_config.NumberColumn(format="%.2f"),
                             "Change": st.column_config.NumberColumn(format="%.2f"),
-                        }
+                        },
                     )
                 else:
                     st.info("Select at least one ticker.")
@@ -323,36 +321,32 @@ if page == "📊 Dividends Overview":
             st.divider()
             st.subheader("Top 5 dividends by ticker (All-time)")
 
-            if df_divi.empty:
-                st.info("No dividends yet.")
-            else:
-                df = df_divi[["symbol", "amount"]].copy()
-                df["amount"] = pd.to_numeric(df["amount"], errors="coerce")
-                df.replace([np.inf, -np.inf], np.nan, inplace=True)
-                df.dropna(subset=["symbol", "amount"], inplace=True)
-                df["symbol"] = df["symbol"].astype(str).str.strip()
+            df = df_divi[["symbol", "amount"]].copy()
+            df["amount"] = pd.to_numeric(df["amount"], errors="coerce")
+            df.replace([np.inf, -np.inf], np.nan, inplace=True)
+            df.dropna(subset=["symbol", "amount"], inplace=True)
+            df["symbol"] = df["symbol"].astype(str).str.strip()
 
-                all_time = (
-                    df.groupby("symbol", as_index=False)
-                    .agg(Total=("amount", "sum"))
-                    .sort_values("Total", ascending=False)
-                    .head(5)
-                    .rename(columns={"symbol": "Ticker"})
-                    .reset_index(drop=True)
-                )
-                all_time["Total"] = all_time["Total"].astype(float)
+            all_time = (
+                df.groupby("symbol", as_index=False)
+                .agg(Total=("amount", "sum"))
+                .sort_values("Total", ascending=False)
+                .head(5)
+                .rename(columns={"symbol": "Ticker"})
+                .reset_index(drop=True)
+            )
+            all_time["Total"] = all_time["Total"].astype(float)
 
-                st.dataframe(
-                    all_time,
-                    use_container_width=True,
-                    hide_index=True,
-                    height=RIGHT_TABLE_H,
-                    column_config={
-                        "Ticker": st.column_config.TextColumn(),
-                        "Total":  st.column_config.NumberColumn(format="%.0f"),
-                    },
-                )
-
+            st.dataframe(
+                all_time,
+                use_container_width=True,
+                hide_index=True,
+                height=RIGHT_TABLE_H,
+                column_config={
+                    "Ticker": st.column_config.TextColumn(),
+                    "Total": st.column_config.NumberColumn(format="%.0f"),
+                },
+            )
 # ========================= PAGE: Transactions =========================
 elif page == "📈 Transactions":
     st.header("Transactions overview")
@@ -513,6 +507,8 @@ elif page == "Open option positions":
             df_opt = df_opt.merge(net_by_desc, on="description", how="left")
             df_opt = df_opt[df_opt["net_quantity"].round(8) != 0]
 
+            #
+        
             # Premiums
             df_opt["premium"] = (df_opt["tradeprice"] * df_opt["quantity"] * 100).round(2)
             df_opt["unearned_premium"] = (-df_opt["premium"]).round(2)
@@ -540,6 +536,35 @@ elif page == "Open option positions":
             # Put/Call labels
             if "put/call" in df_opt.columns:
                 df_opt["put/call"] = df_opt["put/call"].map({"C": "Call", "P": "Put"}).fillna(df_opt["put/call"])
+
+            # ------------------------------------------------------------
+            # AGGREGATE OPEN OPTION POSITIONS
+            # merge multiple fills of the same contract into 1 row
+            # ------------------------------------------------------------
+            group_cols = ["description", "put/call", "strike", "expiry_dt"]
+            if CUR_COL is not None:
+                group_cols.append(CUR_COL)
+
+            df_opt = (
+                df_opt.groupby(group_cols, dropna=False, as_index=False)
+                .agg(
+                    quantity=("quantity", "sum"),
+                    premium=("premium", "sum"),
+                    unearned_premium=("unearned_premium", "sum"),
+                    DTE=("DTE", "min"),
+                )
+            )
+
+            # keep only truly open positions
+            df_opt = df_opt[df_opt["quantity"].round(8) != 0].copy()
+
+            # recompute capital blocked on contract level (clean & consistent)
+            df_opt["capital blocked"] = (df_opt["strike"] * df_opt["quantity"] * 100).round(2)
+
+            # nice ordering
+            sort_cols = [c for c in ["DTE", "description", "strike"] if c in df_opt.columns]
+            if sort_cols:
+                df_opt = df_opt.sort_values(sort_cols, ascending=True)
 
             # --------- Two-column layout
             left, right = st.columns([2.6, 1.4])
