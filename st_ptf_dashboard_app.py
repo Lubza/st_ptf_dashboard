@@ -533,6 +533,8 @@ elif page == "Open option positions":
             # Capital blocked (signed)
             df_opt["capital blocked"] = (df_opt["strike"] * df_opt["quantity"] * 100).round(2)
 
+            df_opt = df_opt[df_opt["quantity"].round(8) != 0].copy()
+
             # Put/Call labels
             if "put/call" in df_opt.columns:
                 df_opt["put/call"] = df_opt["put/call"].map({"C": "Call", "P": "Put"}).fillna(df_opt["put/call"])
@@ -541,19 +543,7 @@ elif page == "Open option positions":
             # AGGREGATE OPEN OPTION POSITIONS
             # merge multiple fills of the same contract into 1 row
             # ------------------------------------------------------------
-            group_cols = ["description", "put/call", "strike", "expiry_dt"]
-            if CUR_COL is not None:
-                group_cols.append(CUR_COL)
-
-            df_opt = (
-                df_opt.groupby(group_cols, dropna=False, as_index=False)
-                .agg(
-                    quantity=("quantity", "sum"),
-                    premium=("premium", "sum"),
-                    unearned_premium=("unearned_premium", "sum"),
-                    DTE=("DTE", "min"),
-                )
-            )
+            
 
             # keep only truly open positions
             df_opt = df_opt[df_opt["quantity"].round(8) != 0].copy()
