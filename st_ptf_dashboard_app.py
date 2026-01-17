@@ -543,7 +543,20 @@ elif page == "Open option positions":
             # AGGREGATE OPEN OPTION POSITIONS
             # merge multiple fills of the same contract into 1 row
             # ------------------------------------------------------------
-            
+            group_cols = ["description", "buy/sell", "put/call", "strike", "expiry_dt"]
+            if CUR_COL is not None:
+                group_cols.append(CUR_COL)
+
+            df_opt = (
+                df_opt.groupby(group_cols, dropna=False, as_index=False)
+                    .agg(
+                        quantity=("quantity", "sum"),
+                        tradeprice=("tradeprice", "mean"),          # optional: len pre info
+                        premium=("premium", "sum"),
+                        unearned_premium=("unearned_premium", "sum"),
+                        DTE=("DTE", "min"),
+                    )
+            )
 
             # keep only truly open positions
             df_opt = df_opt[df_opt["quantity"].round(8) != 0].copy()
