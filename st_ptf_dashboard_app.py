@@ -374,8 +374,8 @@ elif page == "📒 Closed positions / realized PnL (FIFO)":
     c1, c2, c3, c4 = st.columns([1.2, 1.0, 1.0, 1.0])
 
     with c1:
-        instruments = sorted(df_rlz["instrument"].dropna().unique().tolist()) if "instrument" in df_rlz.columns else []
-        sel_instr = st.multiselect("Instrument", options=instruments, default=[])
+        tickers = sorted(df_rlz["ticker"].dropna().unique().tolist()) if "ticker" in df_rlz.columns else []
+        sel_ticker = st.multiselect("ticker", options=tickers, default=[])
 
     with c2:
         asset_opts = sorted(df_rlz["asset_class"].dropna().unique().tolist()) if "asset_class" in df_rlz.columns else []
@@ -394,8 +394,8 @@ elif page == "📒 Closed positions / realized PnL (FIFO)":
         group_mode = st.selectbox("Group by", ["None", "Month", "Year"], index=1)
 
     df_f = df_rlz.copy()
-    if sel_instr and "instrument" in df_f.columns:
-        df_f = df_f[df_f["instrument"].isin(sel_instr)]
+    if sel_ticker and "ticker" in df_f.columns:
+        df_f = df_f[df_f["ticker"].isin(sel_ticker)]
     if sel_asset and "asset_class" in df_f.columns:
         df_f = df_f[df_f["asset_class"].isin(sel_asset)]
     if date_rng and "close_date" in df_f.columns and len(date_rng) == 2 and date_rng[0] and date_rng[1]:
@@ -459,7 +459,7 @@ elif page == "📒 Closed positions / realized PnL (FIFO)":
         if c in df_disp.columns:
             df_disp[c] = pd.to_numeric(df_disp[c], errors="coerce").round(4)
 
-    st.dataframe(df_disp.sort_values(["close_date","instrument"], ascending=[False, True]) if "close_date" in df_disp.columns else df_disp,
+    st.dataframe(df_disp.sort_values(["close_date","ticker"], ascending=[False, True]) if "close_date" in df_disp.columns else df_disp,
                  use_container_width=True,
                  hide_index=True)
 
