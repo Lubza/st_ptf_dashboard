@@ -375,7 +375,7 @@ elif page == "📒 Closed positions / realized PnL (FIFO)":
 
     with c1:
         tickers = sorted(df_rlz["ticker"].dropna().unique().tolist()) if "ticker" in df_rlz.columns else []
-        sel_ticker = st.multiselect("ticker", options=tickers, default=[])
+        sel_ticker = st.multiselect("Ticker", options=tickers, default=[])
 
     with c2:
         asset_opts = sorted(df_rlz["asset_class"].dropna().unique().tolist()) if "asset_class" in df_rlz.columns else []
