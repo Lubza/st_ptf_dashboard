@@ -438,6 +438,7 @@ elif page == "📒 Closed positions / realized PnL (FIFO)":
     display_cols = [
         #"method",
         "asset_class",
+        "ticker"
         "instrument",
         "position_side",
         #"open_trade_id",
