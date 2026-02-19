@@ -18,6 +18,7 @@ DB_URL               = st.secrets["DB_URL"]
 TABLE_DIVI           = st.secrets["TABLE_DIVI"]
 TABLE_TRANSACTIONS   = st.secrets["TABLE_TRANSACTIONS"]
 VIEW_REALIZED_FIFO = st.secrets["VIEW_REALIZED_FIFO"]
+VIEW_REALIZED_FIFO_USD = st.secrets["VIEW_REALIZED_FIFO_USD"]
 
 # --- refactor
 @st.cache_resource
@@ -35,6 +36,7 @@ page = st.sidebar.radio(
      "Open option positions",
      "Open stock positions",
      "📒 Closed positions / realized PnL (FIFO)",
+     "📒 Closed positions / realized PnL (FIFO, USD)",
      "⚙️ Settings",
     ),
     key="nav"
@@ -463,6 +465,156 @@ elif page == "📒 Closed positions / realized PnL (FIFO)":
                  use_container_width=True,
                  hide_index=True)
 
+###
+# ========================= PAGE: Closed positions / Realized PnL USD =========================
+elif page == "📒 Closed positions / realized PnL (FIFO, USD)":
+    st.header("Closed positions / realized PnL (FIFO, USD)")
+
+    df_rlz = load_realized(VIEW_REALIZED_FIFO_USD)
+
+    if df_rlz.empty:
+        st.info("No realized lot matches in this view yet.")
+        st.stop()
+
+    # --- normalize dates
+    for c in ["open_date", "close_date", "created_at"]:
+        if c in df_rlz.columns:
+            df_rlz[c] = pd.to_datetime(df_rlz[c], errors="coerce")
+
+    # --- filters
+    c1, c2, c3, c4 = st.columns([1.2, 1.0, 1.0, 1.0])
+
+    with c1:
+        tickers = sorted(df_rlz["ticker"].dropna().unique().tolist()) if "ticker" in df_rlz.columns else []
+        sel_ticker = st.multiselect("Ticker", options=tickers, default=[])
+
+    with c2:
+        asset_opts = sorted(df_rlz["asset_class"].dropna().unique().tolist()) if "asset_class" in df_rlz.columns else []
+        sel_asset = st.multiselect("Asset class", options=asset_opts, default=[])
+
+    with c3:
+        date_rng = None
+        if "close_date" in df_rlz.columns and df_rlz["close_date"].notna().any():
+            min_d = df_rlz["close_date"].min().date()
+            max_d = df_rlz["close_date"].max().date()
+            date_rng = st.date_input("Close date range", value=(min_d, max_d))
+        else:
+            st.caption("No close_date values available.")
+
+    with c4:
+        group_mode = st.selectbox("Group by", ["None", "Month", "Year"], index=1)
+
+    df_f = df_rlz.copy()
+    if sel_ticker and "ticker" in df_f.columns:
+        df_f = df_f[df_f["ticker"].isin(sel_ticker)]
+    if sel_asset and "asset_class" in df_f.columns:
+        df_f = df_f[df_f["asset_class"].isin(sel_asset)]
+    if date_rng and "close_date" in df_f.columns and len(date_rng) == 2 and date_rng[0] and date_rng[1]:
+        start = pd.to_datetime(date_rng[0])
+        end   = pd.to_datetime(date_rng[1]) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+        df_f = df_f[(df_f["close_date"] >= start) & (df_f["close_date"] <= end)]
+
+    # --- KPI (USD breakdown)
+    usd_total = pd.to_numeric(df_f["realized_pnl_usd_total"], errors="coerce").fillna(0).sum()
+    usd_price = pd.to_numeric(df_f["realized_pnl_usd_price"], errors="coerce").fillna(0).sum()
+    usd_fx    = pd.to_numeric(df_f["realized_pnl_usd_fx"], errors="coerce").fillna(0).sum()
+
+    trades_cnt = len(df_f)
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Realized PnL USD (Total)", f"{usd_total:,.2f}")
+    c2.metric("Realized PnL USD (Price)", f"{usd_price:,.2f}")
+    c3.metric("Realized PnL USD (FX)", f"{usd_fx:,.2f}")
+
+    st.caption(f"Rows: {trades_cnt}")
+
+    # --- Aggregation chart (optional) - USD breakdown
+    if group_mode != "None" and "close_date" in df_f.columns:
+        tmp = df_f.copy()
+
+        # Ensure numeric
+        for col in ["realized_pnl_usd_total", "realized_pnl_usd_price", "realized_pnl_usd_fx"]:
+            tmp[col] = pd.to_numeric(tmp.get(col, 0), errors="coerce").fillna(0)
+
+        # Period (Month / Year)
+        if group_mode == "Month":
+            tmp["period"] = tmp["close_date"].dt.to_period("M").dt.to_timestamp()
+        else:
+            tmp["period"] = tmp["close_date"].dt.to_period("Y").dt.to_timestamp()
+
+        # Aggregate (wide)
+        agg_wide = (
+            tmp.groupby("period", as_index=False)[
+                ["realized_pnl_usd_total", "realized_pnl_usd_price", "realized_pnl_usd_fx"]
+            ]
+            .sum()
+            .sort_values("period")
+        )
+
+        # Wide -> long for Altair
+        agg = agg_wide.melt(
+            id_vars=["period"],
+            var_name="metric",
+            value_name="value"
+        )
+
+        metric_labels = {
+            "realized_pnl_usd_total": "Total",
+            "realized_pnl_usd_price": "Price",
+            "realized_pnl_usd_fx": "FX",
+        }
+        agg["metric"] = agg["metric"].map(metric_labels).fillna(agg["metric"])
+
+        chart = (
+            alt.Chart(agg)
+            .mark_bar()
+            .encode(
+                x=alt.X("period:T", title=group_mode),
+                y=alt.Y("value:Q", title="Realized PnL (USD)"),
+                color=alt.Color("metric:N", title="Component"),
+                tooltip=[
+                    alt.Tooltip("period:T", title=group_mode),
+                    alt.Tooltip("metric:N", title="Component"),
+                    alt.Tooltip("value:Q", title="PnL (USD)", format=",.2f"),
+                ],
+            )
+            .properties(height=300)
+        )
+
+        st.altair_chart(chart, use_container_width=True)
+
+    st.subheader("Details")
+    # nice display ordering (only show if exists)
+    display_cols = [
+        #"method",
+        "asset_class",
+        "ticker",
+        "instrument",
+        "position_side",
+        #"open_trade_id",
+        #"close_trade_id",
+        "qty_matched",
+        "open_date",
+        "close_date",
+        "open_price",
+        "close_price",
+        "realized_pnl"
+    ]
+    display_cols = [c for c in display_cols if c in df_f.columns]
+
+    df_disp = df_f[display_cols].copy()
+
+    # round numeric cols for display
+    for c in ["qty_matched","open_price","close_price","realized_pnl"]:
+        if c in df_disp.columns:
+            df_disp[c] = pd.to_numeric(df_disp[c], errors="coerce").round(4)
+
+    st.dataframe(df_disp.sort_values(["close_date","ticker"], ascending=[False, True]) if "close_date" in df_disp.columns else df_disp,
+                 use_container_width=True,
+                 hide_index=True)
+
+
+####
 
 # ========================= PAGE: Open option positions =========================
 elif page == "Open option positions":
