@@ -358,10 +358,11 @@ elif page == "📈 Transactions":
     else: 
         st.dataframe(df_tx)
 # ========================= PAGE: Closed positions / Realized PnL =========================
-elif page == "📒 Closed positions / realized PnL (FIFO)":
-    st.header("Closed positions / realized PnL (FIFO)")
+# ========================= PAGE: Closed positions / Realized PnL USD =========================
+elif page == "📒 Closed positions / realized PnL (FIFO, USD)":
+    st.header("Closed positions / realized PnL (FIFO, USD)")
 
-    df_rlz = load_realized(VIEW_REALIZED_FIFO)
+    df_rlz = load_realized(VIEW_REALIZED_FIFO_USD)
 
     if df_rlz.empty:
         st.info("No realized lot matches in this view yet.")
@@ -402,68 +403,72 @@ elif page == "📒 Closed positions / realized PnL (FIFO)":
         df_f = df_f[df_f["asset_class"].isin(sel_asset)]
     if date_rng and "close_date" in df_f.columns and len(date_rng) == 2 and date_rng[0] and date_rng[1]:
         start = pd.to_datetime(date_rng[0])
-        end   = pd.to_datetime(date_rng[1]) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+        end = pd.to_datetime(date_rng[1]) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
         df_f = df_f[(df_f["close_date"] >= start) & (df_f["close_date"] <= end)]
 
+    # --- numeric cleanup
+    for col in [
+        "realized_local", "realized_usd", "commission_local", "commission_usd",
+        "qty_matched", "open_price", "close_price"
+    ]:
+        if col in df_f.columns:
+            df_f[col] = pd.to_numeric(df_f[col], errors="coerce")
+
     # --- KPI
-    total_realized = pd.to_numeric(df_f.get("realized_pnl", 0), errors="coerce").fillna(0).sum()
+    realized_local_total = pd.to_numeric(df_f.get("realized_local", 0), errors="coerce").fillna(0).sum()
+    realized_usd_total = pd.to_numeric(df_f.get("realized_usd", 0), errors="coerce").fillna(0).sum()
+    commission_local_total = pd.to_numeric(df_f.get("commission_local", 0), errors="coerce").fillna(0).sum()
+    commission_usd_total = pd.to_numeric(df_f.get("commission_usd", 0), errors="coerce").fillna(0).sum()
+
     trades_cnt = len(df_f)
-    st.metric("Total realized PnL", f"{total_realized:,.2f}")
+
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Realized g/l local ccy", f"{realized_local_total:,.2f}")
+    k2.metric("Realized g/l USD", f"{realized_usd_total:,.2f}")
+    k3.metric("Commission local", f"{commission_local_total:,.2f}")
+    k4.metric("Commission USD", f"{commission_usd_total:,.2f}")
+
     st.caption(f"Rows: {trades_cnt}")
 
-    # --- Aggregation chart (optional)
-    if group_mode != "None" and "close_date" in df_f.columns:
-        tmp = df_f.copy()
-        tmp["realized_pnl"] = pd.to_numeric(tmp["realized_pnl"], errors="coerce").fillna(0)
-
-        if group_mode == "Month":
-            tmp["period"] = tmp["close_date"].dt.to_period("M").dt.to_timestamp()
-        else:
-            tmp["period"] = tmp["close_date"].dt.to_period("Y").dt.to_timestamp()
-
-        agg = tmp.groupby("period", as_index=False)["realized_pnl"].sum().sort_values("period")
-
-        chart = (
-            alt.Chart(agg)
-            .mark_bar()
-            .encode(
-                x=alt.X("period:T", title=group_mode),
-                y=alt.Y("realized_pnl:Q", title="Realized PnL"),
-                tooltip=[alt.Tooltip("period:T"), alt.Tooltip("realized_pnl:Q", format=",.2f")]
-            )
-            .properties(height=300)
-        )
-        st.altair_chart(chart, use_container_width=True)
+    # --- graph removed for now
 
     st.subheader("Details")
-    # nice display ordering (only show if exists)
+
     display_cols = [
-        #"method",
-        "asset_class",
-        "ticker",
         "instrument",
-        "position_side",
-        #"open_trade_id",
-        #"close_trade_id",
         "qty_matched",
         "open_date",
         "close_date",
         "open_price",
         "close_price",
-        "realized_pnl"
+        "currency_local",
+        "realized_local",
+        "realized_usd",
+        "commission_local",
+        "commission_usd",
     ]
     display_cols = [c for c in display_cols if c in df_f.columns]
 
     df_disp = df_f[display_cols].copy()
 
-    # round numeric cols for display
-    for c in ["qty_matched","open_price","close_price","realized_pnl"]:
+    for c in [
+        "qty_matched", "open_price", "close_price",
+        "realized_local", "realized_usd",
+        "commission_local", "commission_usd"
+    ]:
         if c in df_disp.columns:
             df_disp[c] = pd.to_numeric(df_disp[c], errors="coerce").round(4)
 
-    st.dataframe(df_disp.sort_values(["close_date","ticker"], ascending=[False, True]) if "close_date" in df_disp.columns else df_disp,
-                 use_container_width=True,
-                 hide_index=True)
+    sort_cols = [c for c in ["close_date", "instrument"] if c in df_disp.columns]
+    if sort_cols:
+        ascending = [False, True] if len(sort_cols) == 2 else [False]
+        df_disp = df_disp.sort_values(sort_cols, ascending=ascending)
+
+    st.dataframe(
+        df_disp,
+        use_container_width=True,
+        hide_index=True
+    )
 
 ###
 # ========================= PAGE: Closed positions / Realized PnL USD =========================
