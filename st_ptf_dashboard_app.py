@@ -35,7 +35,6 @@ page = st.sidebar.radio(
      "📈 Transactions",
      "Open option positions",
      "Open stock positions",
-     "📒 Closed positions / realized PnL (FIFO)",
      "📒 Closed positions / realized PnL (FIFO, USD)",
      "⚙️ Settings",
     ),
@@ -357,7 +356,6 @@ elif page == "📈 Transactions":
         st.warning("No transactions in the table.") 
     else: 
         st.dataframe(df_tx)
-# ========================= PAGE: Closed positions / Realized PnL =========================
 # ========================= PAGE: Closed positions / Realized PnL USD =========================
 elif page == "📒 Closed positions / realized PnL (FIFO, USD)":
     st.header("Closed positions / realized PnL (FIFO, USD)")
