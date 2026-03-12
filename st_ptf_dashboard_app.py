@@ -36,6 +36,7 @@ page = st.sidebar.radio(
      "Open option positions",
      "Open stock positions",
      "📒 Closed positions / realized PnL (FIFO, USD)",
+     "📊 Realized PnL Analysis",
      "Option ROI Calculator",
      "⚙️ Settings",
     ),
@@ -1091,6 +1092,102 @@ elif page == "Option ROI Calculator":
             """,
             unsafe_allow_html=True
         )
+# ========================= PAGE: Realized PnL Analysis =========================
+elif page == "📊 Realized PnL Analysis":
+    st.header("Realized PnL Analysis")
+
+    df_rlz = load_realized(VIEW_REALIZED_FIFO_USD)
+
+    if df_rlz.empty:
+        st.info("No realized data available.")
+        st.stop()
+
+    # date handling
+    if "close_date" in df_rlz.columns:
+        df_rlz["close_date"] = pd.to_datetime(df_rlz["close_date"], errors="coerce")
+        df_rlz["year"] = df_rlz["close_date"].dt.year
+    else:
+        st.error("Column 'close_date' is missing.")
+        st.stop()
+
+    # realized pnl usd column
+    if "realized_pnl_usd_total" in df_rlz.columns:
+        realized_col = "realized_pnl_usd_total"
+    elif "realized_usd" in df_rlz.columns:
+        realized_col = "realized_usd"
+    else:
+        st.error("No USD realized PnL column found.")
+        st.stop()
+
+    df_rlz[realized_col] = pd.to_numeric(df_rlz[realized_col], errors="coerce").fillna(0)
+
+    # layout
+    left_col, spacer, right_col = st.columns([1.1, 0.15, 2.8])
+
+    with left_col:
+        st.subheader("Filters")
+
+        ticker_options = sorted(df_rlz["ticker"].dropna().astype(str).unique()) if "ticker" in df_rlz.columns else []
+        selected_tickers = st.multiselect("Ticker", options=ticker_options)
+
+        asset_options = sorted(df_rlz["asset_class"].dropna().astype(str).unique()) if "asset_class" in df_rlz.columns else []
+        selected_asset = st.selectbox("Asset class", options=["All"] + asset_options)
+
+        year_options = sorted(df_rlz["year"].dropna().astype(int).unique())
+        selected_years = st.multiselect("Year", options=year_options, default=year_options)
+
+    # filtering
+    df_filtered = df_rlz.copy()
+
+    if selected_tickers and "ticker" in df_filtered.columns:
+        df_filtered = df_filtered[df_filtered["ticker"].isin(selected_tickers)]
+
+    if selected_asset != "All" and "asset_class" in df_filtered.columns:
+        df_filtered = df_filtered[df_filtered["asset_class"] == selected_asset]
+
+    if selected_years:
+        df_filtered = df_filtered[df_filtered["year"].isin(selected_years)]
+
+    with right_col:
+        st.subheader("Realized PnL in USD by Year")
+
+        if df_filtered.empty:
+            st.info("No data for selected filters.")
+        else:
+            chart_df = (
+                df_filtered
+                .groupby(["year", "asset_class"], as_index=False)[realized_col]
+                .sum()
+                .rename(columns={realized_col: "realized_pnl_usd"})
+            )
+
+            chart = alt.Chart(chart_df).mark_bar().encode(
+                x=alt.X("year:O", title="Year"),
+                y=alt.Y("realized_pnl_usd:Q", title="Realized PnL in USD"),
+                color=alt.Color("asset_class:N", title="Asset class"),
+                tooltip=[
+                    alt.Tooltip("year:O", title="Year"),
+                    alt.Tooltip("asset_class:N", title="Asset class"),
+                    alt.Tooltip("realized_pnl_usd:Q", title="Realized PnL USD", format=",.2f")
+                ]
+            ).properties(height=500)
+
+            st.altair_chart(chart, use_container_width=True)
+
+            st.subheader("Summary")
+            summary_df = (
+                chart_df.pivot_table(
+                    index="year",
+                    columns="asset_class",
+                    values="realized_pnl_usd",
+                    aggfunc="sum",
+                    fill_value=0
+                )
+                .reset_index()
+            )
+
+            st.dataframe(summary_df, use_container_width=True, hide_index=True)
+
 
 # ========================= PAGE: Settings =========================
 else:
