@@ -1190,11 +1190,10 @@ elif page == "📊 Realized PnL Analysis":
                     alt.Tooltip("realized_pnl_usd:Q", title="Realized PnL USD", format=",.2f")
                 ]
             ).properties(
-                height=350,
-                width=330
+                height=350
             )
 
-            st.altair_chart(chart_year, use_container_width=False)
+            st.altair_chart(chart_year, use_container_width=True)
 
     # =========================================================
     # RIGHT SIDE = MONTH
@@ -1260,11 +1259,10 @@ elif page == "📊 Realized PnL Analysis":
                     alt.Tooltip("realized_pnl_usd:Q", title="Realized PnL USD", format=",.2f")
                 ]
             ).properties(
-                height=350,
-                width=330
+                height=350
             )
 
-            st.altair_chart(chart_month, use_container_width=False)
+            st.altair_chart(chart_month, use_container_width=True)
 
 
 # ========================= PAGE: Settings =========================
