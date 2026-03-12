@@ -1199,8 +1199,8 @@ elif page == "Option ROI Calculator":
     with col1:
         st.markdown('<div class="roi-wrap">', unsafe_allow_html=True)
 
-        strike = st.number_input("Strike", min_value=0.0, value=40.0, step=1)
-        premium = st.number_input("Premium", min_value=0.0, value=2.42, step=0.1)
+        strike = st.number_input("Strike", min_value=0.0, value=40.0, step=1.00)
+        premium = st.number_input("Premium", min_value=0.0, value=2.42, step=0.10)
         dte = st.number_input("DTE", min_value=1, value=132, step=1)
 
         capital = strike * 100
