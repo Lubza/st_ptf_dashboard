@@ -1102,7 +1102,7 @@ elif page == "📊 Realized PnL Analysis":
         st.info("No realized data available.")
         st.stop()
 
-    # date handling
+    # dates
     if "close_date" in df_rlz.columns:
         df_rlz["close_date"] = pd.to_datetime(df_rlz["close_date"], errors="coerce")
         df_rlz["year"] = df_rlz["close_date"].dt.year
@@ -1121,22 +1121,22 @@ elif page == "📊 Realized PnL Analysis":
 
     df_rlz[realized_col] = pd.to_numeric(df_rlz[realized_col], errors="coerce").fillna(0)
 
-    # layout
-    left_col, spacer, right_col = st.columns([1.1, 0.15, 2.8])
+    # ---------------- FILTERS ----------------
+    f1, f2, f3 = st.columns(3)
 
-    with left_col:
-        st.subheader("Filters")
-
+    with f1:
         ticker_options = sorted(df_rlz["ticker"].dropna().astype(str).unique()) if "ticker" in df_rlz.columns else []
         selected_tickers = st.multiselect("Ticker", options=ticker_options)
 
+    with f2:
         asset_options = sorted(df_rlz["asset_class"].dropna().astype(str).unique()) if "asset_class" in df_rlz.columns else []
         selected_asset = st.selectbox("Asset class", options=["All"] + asset_options)
 
+    with f3:
         year_options = sorted(df_rlz["year"].dropna().astype(int).unique())
         selected_years = st.multiselect("Year", options=year_options, default=year_options)
 
-    # filtering
+    # ---------------- FILTERING ----------------
     df_filtered = df_rlz.copy()
 
     if selected_tickers and "ticker" in df_filtered.columns:
@@ -1148,45 +1148,36 @@ elif page == "📊 Realized PnL Analysis":
     if selected_years:
         df_filtered = df_filtered[df_filtered["year"].isin(selected_years)]
 
-    with right_col:
-        st.subheader("Realized PnL in USD by Year")
+    st.markdown("---")
 
-        if df_filtered.empty:
-            st.info("No data for selected filters.")
-        else:
-            chart_df = (
-                df_filtered
-                .groupby(["year", "asset_class"], as_index=False)[realized_col]
-                .sum()
-                .rename(columns={realized_col: "realized_pnl_usd"})
-            )
+    # ---------------- CHART ----------------
+    st.subheader("Realized PnL in USD by Year")
 
-            chart = alt.Chart(chart_df).mark_bar().encode(
-                x=alt.X("year:O", title="Year"),
-                y=alt.Y("realized_pnl_usd:Q", title="Realized PnL in USD"),
-                color=alt.Color("asset_class:N", title="Asset class"),
-                tooltip=[
-                    alt.Tooltip("year:O", title="Year"),
-                    alt.Tooltip("asset_class:N", title="Asset class"),
-                    alt.Tooltip("realized_pnl_usd:Q", title="Realized PnL USD", format=",.2f")
-                ]
-            ).properties(height=500)
+    if df_filtered.empty:
+        st.info("No data for selected filters.")
+    else:
+        chart_df = (
+            df_filtered
+            .groupby(["year", "asset_class"], as_index=False)[realized_col]
+            .sum()
+            .rename(columns={realized_col: "realized_pnl_usd"})
+        )
 
-            st.altair_chart(chart, use_container_width=True)
+        chart = alt.Chart(chart_df).mark_bar().encode(
+            x=alt.X("year:O", title="Year"),
+            y=alt.Y("realized_pnl_usd:Q", title="Realized PnL in USD"),
+            color=alt.Color("asset_class:N", title="Asset class"),
+            tooltip=[
+                alt.Tooltip("year:O", title="Year"),
+                alt.Tooltip("asset_class:N", title="Asset class"),
+                alt.Tooltip("realized_pnl_usd:Q", title="Realized PnL USD", format=",.2f")
+            ]
+        ).properties(
+            height=350,
+            width=650
+        )
 
-            st.subheader("Summary")
-            summary_df = (
-                chart_df.pivot_table(
-                    index="year",
-                    columns="asset_class",
-                    values="realized_pnl_usd",
-                    aggfunc="sum",
-                    fill_value=0
-                )
-                .reset_index()
-            )
-
-            st.dataframe(summary_df, use_container_width=True, hide_index=True)
+        st.altair_chart(chart, use_container_width=False)
 
 
 # ========================= PAGE: Settings =========================
