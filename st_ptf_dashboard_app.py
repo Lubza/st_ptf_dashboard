@@ -1106,6 +1106,7 @@ elif page == "📊 Realized PnL Analysis":
     if "close_date" in df_rlz.columns:
         df_rlz["close_date"] = pd.to_datetime(df_rlz["close_date"], errors="coerce")
         df_rlz["year"] = df_rlz["close_date"].dt.year
+        df_rlz["month"] = df_rlz["close_date"].dt.to_period("M").astype(str)
     else:
         st.error("Column 'close_date' is missing.")
         st.stop()
@@ -1121,62 +1122,149 @@ elif page == "📊 Realized PnL Analysis":
 
     df_rlz[realized_col] = pd.to_numeric(df_rlz[realized_col], errors="coerce").fillna(0)
 
-    # ---------------- FILTERS ----------------
-    filter_col, spacer = st.columns([1, 2])
+    color_scale = alt.Scale(
+        domain=["OPT", "STK"],
+        range=["#1565c0", "#7cb5e3"]
+    )
 
-    with filter_col:
-        
-        ticker_options = sorted(df_rlz["ticker"].dropna().astype(str).unique()) if "ticker" in df_rlz.columns else []
-        selected_tickers = st.multiselect("Ticker", options=ticker_options)
+    left_col, right_col = st.columns(2)
 
-        asset_options = sorted(df_rlz["asset_class"].dropna().astype(str).unique()) if "asset_class" in df_rlz.columns else []
-        selected_asset = st.selectbox("Asset class", options=["All"] + asset_options)
+    # =========================================================
+    # LEFT SIDE = YEAR
+    # =========================================================
+    with left_col:
+        st.subheader("Realized PnL in USD by Year")
 
-        year_options = sorted(df_rlz["year"].dropna().astype(int).unique())
-        selected_years = st.multiselect("Year", options=year_options, default=year_options)
-
-    # ---------------- FILTERING ----------------
-    df_filtered = df_rlz.copy()
-
-    if selected_tickers and "ticker" in df_filtered.columns:
-        df_filtered = df_filtered[df_filtered["ticker"].isin(selected_tickers)]
-
-    if selected_asset != "All" and "asset_class" in df_filtered.columns:
-        df_filtered = df_filtered[df_filtered["asset_class"] == selected_asset]
-
-    if selected_years:
-        df_filtered = df_filtered[df_filtered["year"].isin(selected_years)]
-
-    st.markdown("---")
-
-    # ---------------- CHART ----------------
-    st.subheader("Realized PnL in USD by Year")
-
-    if df_filtered.empty:
-        st.info("No data for selected filters.")
-    else:
-        chart_df = (
-            df_filtered
-            .groupby(["year", "asset_class"], as_index=False)[realized_col]
-            .sum()
-            .rename(columns={realized_col: "realized_pnl_usd"})
+        ticker_options_y = sorted(df_rlz["ticker"].dropna().astype(str).unique()) if "ticker" in df_rlz.columns else []
+        selected_tickers_y = st.multiselect(
+            "Ticker",
+            options=ticker_options_y,
+            key="ticker_year"
         )
 
-        chart = alt.Chart(chart_df).mark_bar().encode(
-            x=alt.X("year:O", title="Year"),
-            y=alt.Y("realized_pnl_usd:Q", title="Realized PnL in USD"),
-            color=alt.Color("asset_class:N", title="Asset class"),
-            tooltip=[
-                alt.Tooltip("year:O", title="Year"),
-                alt.Tooltip("asset_class:N", title="Asset class"),
-                alt.Tooltip("realized_pnl_usd:Q", title="Realized PnL USD", format=",.2f")
-            ]
-        ).properties(
-            height=350,
-            width=650
+        asset_options_y = sorted(df_rlz["asset_class"].dropna().astype(str).unique()) if "asset_class" in df_rlz.columns else []
+        selected_asset_y = st.selectbox(
+            "Asset class",
+            options=["All"] + asset_options_y,
+            key="asset_year"
         )
 
-        st.altair_chart(chart, use_container_width=False)
+        year_options_y = sorted(df_rlz["year"].dropna().astype(int).unique())
+        selected_years_y = st.multiselect(
+            "Year",
+            options=year_options_y,
+            default=year_options_y,
+            key="year_filter_year_chart"
+        )
+
+        df_year = df_rlz.copy()
+
+        if selected_tickers_y and "ticker" in df_year.columns:
+            df_year = df_year[df_year["ticker"].isin(selected_tickers_y)]
+
+        if selected_asset_y != "All" and "asset_class" in df_year.columns:
+            df_year = df_year[df_year["asset_class"] == selected_asset_y]
+
+        if selected_years_y:
+            df_year = df_year[df_year["year"].isin(selected_years_y)]
+
+        st.markdown("---")
+
+        if df_year.empty:
+            st.info("No data for selected filters.")
+        else:
+            chart_year_df = (
+                df_year
+                .groupby(["year", "asset_class"], as_index=False)[realized_col]
+                .sum()
+                .rename(columns={realized_col: "realized_pnl_usd"})
+            )
+
+            chart_year = alt.Chart(chart_year_df).mark_bar().encode(
+                x=alt.X("year:O", title="Year"),
+                y=alt.Y("realized_pnl_usd:Q", title="Realized PnL in USD"),
+                color=alt.Color("asset_class:N", title="Asset class", scale=color_scale),
+                tooltip=[
+                    alt.Tooltip("year:O", title="Year"),
+                    alt.Tooltip("asset_class:N", title="Asset class"),
+                    alt.Tooltip("realized_pnl_usd:Q", title="Realized PnL USD", format=",.2f")
+                ]
+            ).properties(
+                height=350,
+                width=330
+            )
+
+            st.altair_chart(chart_year, use_container_width=False)
+
+    # =========================================================
+    # RIGHT SIDE = MONTH
+    # =========================================================
+    with right_col:
+        st.subheader("Realized PnL in USD by Month")
+
+        ticker_options_m = sorted(df_rlz["ticker"].dropna().astype(str).unique()) if "ticker" in df_rlz.columns else []
+        selected_tickers_m = st.multiselect(
+            "Ticker",
+            options=ticker_options_m,
+            key="ticker_month"
+        )
+
+        asset_options_m = sorted(df_rlz["asset_class"].dropna().astype(str).unique()) if "asset_class" in df_rlz.columns else []
+        selected_asset_m = st.selectbox(
+            "Asset class",
+            options=["All"] + asset_options_m,
+            key="asset_month"
+        )
+
+        year_options_m = sorted(df_rlz["year"].dropna().astype(int).unique())
+        selected_years_m = st.multiselect(
+            "Year",
+            options=year_options_m,
+            default=year_options_m,
+            key="year_filter_month_chart"
+        )
+
+        df_month = df_rlz.copy()
+
+        if selected_tickers_m and "ticker" in df_month.columns:
+            df_month = df_month[df_month["ticker"].isin(selected_tickers_m)]
+
+        if selected_asset_m != "All" and "asset_class" in df_month.columns:
+            df_month = df_month[df_month["asset_class"] == selected_asset_m]
+
+        if selected_years_m:
+            df_month = df_month[df_month["year"].isin(selected_years_m)]
+
+        st.markdown("---")
+
+        if df_month.empty:
+            st.info("No data for selected filters.")
+        else:
+            chart_month_df = (
+                df_month
+                .groupby(["month", "asset_class"], as_index=False)[realized_col]
+                .sum()
+                .rename(columns={realized_col: "realized_pnl_usd"})
+                .sort_values("month")
+            )
+
+            month_order = sorted(chart_month_df["month"].unique().tolist())
+
+            chart_month = alt.Chart(chart_month_df).mark_bar().encode(
+                x=alt.X("month:O", title="Month", sort=month_order),
+                y=alt.Y("realized_pnl_usd:Q", title="Realized PnL in USD"),
+                color=alt.Color("asset_class:N", title="Asset class", scale=color_scale),
+                tooltip=[
+                    alt.Tooltip("month:O", title="Month"),
+                    alt.Tooltip("asset_class:N", title="Asset class"),
+                    alt.Tooltip("realized_pnl_usd:Q", title="Realized PnL USD", format=",.2f")
+                ]
+            ).properties(
+                height=350,
+                width=330
+            )
+
+            st.altair_chart(chart_month, use_container_width=False)
 
 
 # ========================= PAGE: Settings =========================
