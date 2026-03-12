@@ -1158,57 +1158,86 @@ elif page == "Open stock positions":
 elif page == "Option ROI Calculator":
     st.header("Option ROI Calculator")
 
-    # užší layout - kalkulačka len v ľavom stĺpci
+    st.markdown("""
+    <style>
+    /* zúženie kalkulačky */
+    .roi-wrap {
+        max-width: 320px;
+    }
+
+    /* label pri number input */
+    div[data-testid="stNumberInput"] label {
+        color: #111827 !important;
+        font-weight: 600 !important;
+        font-size: 14px !important;
+    }
+
+    /* box okolo inputu */
+    div[data-testid="stNumberInput"] > div {
+        background-color: #fffbeb !important;
+        border: 1px solid #fcd34d !important;
+        border-radius: 10px !important;
+        padding: 3px 8px !important;
+    }
+
+    /* samotné input pole */
+    div[data-testid="stNumberInput"] input {
+        background-color: #fffbeb !important;
+        color: #111827 !important;
+        font-weight: 600 !important;
+    }
+
+    /* plus/minus buttony */
+    div[data-testid="stNumberInput"] button {
+        background-color: #fffbeb !important;
+        color: #111827 !important;
+        border: none !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
     col1, col2, col3 = st.columns([1, 2, 2])
 
     with col1:
-        # Inputs
-        strike = st.number_input("1 Strike", min_value=0.0, value=40.0, step=0.01)
-        premium = st.number_input("2 Premium", min_value=0.0, value=2.42, step=0.01)
-        dte = st.number_input("3 DTE", min_value=1, value=132, step=1)
+        st.markdown('<div class="roi-wrap">', unsafe_allow_html=True)
 
-        # Calculations
+        strike = st.number_input("Strike", min_value=0.0, value=40.0, step=0.01)
+        premium = st.number_input("Premium", min_value=0.0, value=2.42, step=0.01)
+        dte = st.number_input("DTE", min_value=1, value=132, step=1)
+
         capital = strike * 100
         roi = ((premium * 100) / capital) * 100 if capital > 0 else 0
         roi_annualized = roi * (365 / dte) if dte > 0 else 0
 
-        st.markdown("### Results")
+        st.markdown("### Result")
 
-        def result_box(label, value, bg_color="#f3f4f6", border_color="#d1d5db"):
-            st.markdown(
-                f"""
+        st.markdown(
+            f"""
+            <div style="
+                background-color: #fffbeb;
+                border: 1px solid #fcd34d;
+                border-radius: 10px;
+                padding: 12px 14px;
+                margin-bottom: 12px;
+                max-width: 320px;
+            ">
                 <div style="
-                    background-color: {bg_color};
-                    border: 1px solid {border_color};
-                    border-radius: 10px;
-                    padding: 12px 14px;
-                    margin-bottom: 12px;
-                ">
-                    <div style="
-                        font-size: 14px;
-                        color: #111827;
-                        font-weight: 600;
-                        margin-bottom: 4px;
-                    ">{label}</div>
-                    <div style="
-                        font-size: 22px;
-                        color: #111827;
-                        font-weight: 700;
-                    ">{value}</div>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
+                    font-size: 14px;
+                    color: #111827;
+                    font-weight: 600;
+                    margin-bottom: 4px;
+                ">ROI annualized</div>
+                <div style="
+                    font-size: 22px;
+                    color: #111827;
+                    font-weight: 700;
+                ">{roi_annualized:.2f}%</div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
-        result_box("4 Capital", f"${capital:,.2f}", bg_color="#eef6ff", border_color="#93c5fd")
-
-        roi_bg = "#ecfdf5" if roi >= 20 else "#fffbeb"
-        roi_border = "#86efac" if roi >= 20 else "#fcd34d"
-        result_box("5 ROI", f"{roi:.2f}%", bg_color=roi_bg, border_color=roi_border)
-
-        annual_bg = "#dcfce7" if roi_annualized >= 20 else "#fffbeb"
-        annual_border = "#4ade80" if roi_annualized >= 20 else "#fcd34d"
-        result_box("6 ROI annualized", f"{roi_annualized:.2f}%", bg_color=annual_bg, border_color=annual_border)
+        st.markdown('</div>', unsafe_allow_html=True)
 
 
 
