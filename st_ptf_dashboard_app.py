@@ -1207,13 +1207,21 @@ elif page == "Option ROI Calculator":
         roi = ((premium * 100) / capital) * 100 if capital > 0 else 0
         roi_annualized = roi * (365 / dte) if dte > 0 else 0
 
+        # conditional formatting  ← SEM TO IDE
+        if roi_annualized >= 30:
+            bg_color = "#dcfce7"
+            border_color = "#22c55e"
+        else:
+            bg_color = "#fffbeb"
+            border_color = "#fcd34d"
+
         st.markdown("### Result")
 
         st.markdown(
             f"""
             <div style="
-                background-color: #fffbeb;
-                border: 1px solid #fcd34d;
+                background-color: {bg_color};
+                border: 1px solid {border_color};
                 border-radius: 10px;
                 padding: 12px 14px;
                 margin-bottom: 12px;
@@ -1234,10 +1242,6 @@ elif page == "Option ROI Calculator":
             """,
             unsafe_allow_html=True
         )
-
-        st.markdown('</div>', unsafe_allow_html=True)
-
-
 
 # ========================= PAGE: Settings =========================
 else:
