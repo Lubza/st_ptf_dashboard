@@ -1122,17 +1122,16 @@ elif page == "📊 Realized PnL Analysis":
     df_rlz[realized_col] = pd.to_numeric(df_rlz[realized_col], errors="coerce").fillna(0)
 
     # ---------------- FILTERS ----------------
-    f1, f2, f3 = st.columns(3)
+    filter_col, spacer = st.columns([1, 2])
 
-    with f1:
+    with filter_col:
+        
         ticker_options = sorted(df_rlz["ticker"].dropna().astype(str).unique()) if "ticker" in df_rlz.columns else []
         selected_tickers = st.multiselect("Ticker", options=ticker_options)
 
-    with f2:
         asset_options = sorted(df_rlz["asset_class"].dropna().astype(str).unique()) if "asset_class" in df_rlz.columns else []
         selected_asset = st.selectbox("Asset class", options=["All"] + asset_options)
 
-    with f3:
         year_options = sorted(df_rlz["year"].dropna().astype(int).unique())
         selected_years = st.multiselect("Year", options=year_options, default=year_options)
 
