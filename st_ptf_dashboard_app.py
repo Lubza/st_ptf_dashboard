@@ -36,6 +36,7 @@ page = st.sidebar.radio(
      "Open option positions",
      "Open stock positions",
      "📒 Closed positions / realized PnL (FIFO, USD)",
+     "Option ROI Calculator",
      "⚙️ Settings",
     ),
     key="nav"
@@ -1152,6 +1153,27 @@ elif page == "Open stock positions":
                 use_container_width=True,
                 hide_index=True
             )
+
+# ========================= PAGE: Option ROI Calculator =========================
+elif page == "Option ROI Calculator":
+    st.header("Option ROI Calculator")
+
+    # Inputs
+    strike = st.number_input("1 Strike", min_value=0.0, value=40.0, step=0.01)
+    premium = st.number_input("2 Premium", min_value=0.0, value=2.42, step=0.01)
+    dte = st.number_input("3 DTE", min_value=1, value=132, step=1)
+
+    # Calculations
+    capital = strike * 100
+    roi = ((premium * 100) / capital) * 100 if capital > 0 else 0
+    roi_annualized = roi * (365 / dte) if dte > 0 else 0
+
+    # Results
+    st.text_input("4 Capital", value=f"{capital:.2f}", disabled=True)
+    st.text_input("5 ROI (%)", value=f"{roi:.2f}", disabled=True)
+    st.text_input("6 ROI annualized (%)", value=f"{roi_annualized:.2f}", disabled=True)
+
+
 
 # ========================= PAGE: Settings =========================
 else:
