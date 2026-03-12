@@ -1121,11 +1121,24 @@ elif page == "📊 Realized PnL Analysis":
         st.stop()
 
     df_rlz[realized_col] = pd.to_numeric(df_rlz[realized_col], errors="coerce").fillna(0)
+    df_rlz["pnl_type"] = df_rlz.apply(
+        lambda r: f"{r['asset_class']}_POS" if r[realized_col] >= 0 else f"{r['asset_class']}_NEG",
+        axis=1
+    )
 
     color_scale = alt.Scale(
-        domain=["OPT", "STK"],
-        range=["#1565c0", "#7cb5e3"]
+    domain=["OPT_POS","STK_POS","OPT_NEG","STK_NEG"],
+    range=[
+        "#16a34a",  # OPT positive (strong green)
+        "#86efac",  # STK positive (light green)
+        "#dc2626",  # OPT negative (strong red)
+        "#fca5a5"   # STK negative (light red)
+        ]
     )
+    #color_scale = alt.Scale(
+    #    domain=["OPT", "STK"],
+    #    range=["#1565c0", "#7cb5e3"]
+    #)
 
     left_col, right_col = st.columns(2)
 
@@ -1175,7 +1188,7 @@ elif page == "📊 Realized PnL Analysis":
         else:
             chart_year_df = (
                 df_year
-                .groupby(["year", "asset_class"], as_index=False)[realized_col]
+                .groupby(["year", "asset_class", "pnl_type"], as_index=False)[realized_col]
                 .sum()
                 .rename(columns={realized_col: "realized_pnl_usd"})
             )
@@ -1183,10 +1196,12 @@ elif page == "📊 Realized PnL Analysis":
             chart_year = alt.Chart(chart_year_df).mark_bar().encode(
                 x=alt.X("year:O", title="Year"),
                 y=alt.Y("realized_pnl_usd:Q", title="Realized PnL in USD"),
-                color=alt.Color("asset_class:N", title="Asset class", scale=color_scale),
+                #color=alt.Color("asset_class:N", title="Asset class", scale=color_scale),
+                color=alt.Color("pnl_type:N",scale=color_scale,legend=None),
                 tooltip=[
-                    alt.Tooltip("year:O", title="Year"),
+                    alt.Tooltip("year:O", title="Year"),   # pri month grafe zmen na month
                     alt.Tooltip("asset_class:N", title="Asset class"),
+                    alt.Tooltip("pnl_type:N", title="PnL type"),
                     alt.Tooltip("realized_pnl_usd:Q", title="Realized PnL USD", format=",.2f")
                 ]
             ).properties(
@@ -1241,7 +1256,7 @@ elif page == "📊 Realized PnL Analysis":
         else:
             chart_month_df = (
                 df_month
-                .groupby(["month", "asset_class"], as_index=False)[realized_col]
+                .groupby(["month", "asset_class", "pnl_type"], as_index=False)[realized_col]
                 .sum()
                 .rename(columns={realized_col: "realized_pnl_usd"})
                 .sort_values("month")
@@ -1252,10 +1267,12 @@ elif page == "📊 Realized PnL Analysis":
             chart_month = alt.Chart(chart_month_df).mark_bar().encode(
                 x=alt.X("month:O", title="Month", sort=month_order),
                 y=alt.Y("realized_pnl_usd:Q", title="Realized PnL in USD"),
-                color=alt.Color("asset_class:N", title="Asset class", scale=color_scale),
+                #color=alt.Color("asset_class:N", title="Asset class", scale=color_scale),
+                color=alt.Color("pnl_type:N",scale=color_scale,legend=None),
                 tooltip=[
                     alt.Tooltip("month:O", title="Month"),
                     alt.Tooltip("asset_class:N", title="Asset class"),
+                    alt.Tooltip("pnl_type:N", title="PnL type"),
                     alt.Tooltip("realized_pnl_usd:Q", title="Realized PnL USD", format=",.2f")
                 ]
             ).properties(
