@@ -1159,50 +1159,48 @@ elif page == "Option ROI Calculator":
     st.header("Option ROI Calculator")
 
     st.markdown("""
-    <style>
-    /* zúženie kalkulačky */
-    .roi-wrap {
-        max-width: 320px;
-    }
+        <style>
 
-    /* label pri number input */
-    div[data-testid="stNumberInput"] label {
-        color: #111827 !important;
-        font-weight: 600 !important;
-        font-size: 14px !important;
-    }
+        div[data-testid="stNumberInput"] label {
+            color: #111827 !important;
+            font-weight: 700 !important;
+            font-size: 15px !important;
+        }
 
-    /* box okolo inputu */
-    div[data-testid="stNumberInput"] > div {
-        background-color: #fffbeb !important;
-        border: 1px solid #fcd34d !important;
-        border-radius: 10px !important;
-        padding: 3px 8px !important;
-    }
+        div[data-testid="stNumberInput"] > div {
+            background-color: #fffbeb !important;
+            border: 1px solid #fcd34d !important;
+            border-radius: 10px !important;
+            padding: 3px 8px !important;
+        }
 
-    /* samotné input pole */
-    div[data-testid="stNumberInput"] input {
-        background-color: #fffbeb !important;
-        color: #111827 !important;
-        font-weight: 600 !important;
-    }
+        div[data-testid="stNumberInput"] input {
+            background-color: #fffbeb !important;
+            color: #111827 !important;
+            font-weight: 600 !important;
+        }
 
-    /* plus/minus buttony */
-    div[data-testid="stNumberInput"] button {
-        background-color: #fffbeb !important;
-        color: #111827 !important;
-        border: none !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+        div[data-testid="stNumberInput"] button {
+            background-color: #fffbeb !important;
+            color: #111827 !important;
+            border: none !important;
+        }
+
+        /* remove yellow underline */
+        div[data-testid="stNumberInput"] div[data-baseweb="input"]::after {
+            display: none !important;
+        }
+
+        </style>
+        """, unsafe_allow_html=True)
 
     col1, col2, col3 = st.columns([1, 2, 2])
 
     with col1:
         st.markdown('<div class="roi-wrap">', unsafe_allow_html=True)
 
-        strike = st.number_input("Strike", min_value=0.0, value=40.0, step=0.01)
-        premium = st.number_input("Premium", min_value=0.0, value=2.42, step=0.01)
+        strike = st.number_input("Strike", min_value=0.0, value=40.0, step=1)
+        premium = st.number_input("Premium", min_value=0.0, value=2.42, step=0.1)
         dte = st.number_input("DTE", min_value=1, value=132, step=1)
 
         capital = strike * 100
