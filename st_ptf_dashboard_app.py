@@ -1188,17 +1188,25 @@ elif page == "📊 Realized PnL Analysis":
 
             year_net_df = (
                 df_year
-                .groupby("year", as_index=False)[realized_col]
+                .groupby(["year","asset_class"], as_index=False)[realized_col]
                 .sum()
-                .rename(columns={realized_col: "net_realized_pnl_usd"})
-                .sort_values("year")
+                .rename(columns={realized_col:"net_realized_pnl_usd"})
             )
 
-            year_net_chart = alt.Chart(year_net_df).mark_bar(color="#1565c0").encode(
+            year_net_chart = alt.Chart(year_net_df).mark_bar().encode(
                 x=alt.X("year:O", title="Year"),
                 y=alt.Y("net_realized_pnl_usd:Q", title="Net Realized PnL in USD"),
+                color=alt.Color(
+                    "asset_class:N",
+                    scale=alt.Scale(
+                        domain=["OPT","STK"],
+                        range=["#1d4ed8","#93c5fd"]   # tmavo modrá / svetlo modrá
+                    ),
+                    title="Asset class"
+                ),
                 tooltip=[
                     alt.Tooltip("year:O", title="Year"),
+                    alt.Tooltip("asset_class:N", title="Asset class"),
                     alt.Tooltip("net_realized_pnl_usd:Q", title="Net Realized PnL USD", format=",.2f")
                 ]
             ).properties(height=260)
@@ -1278,19 +1286,27 @@ elif page == "📊 Realized PnL Analysis":
 
             month_net_df = (
                 df_month
-                .groupby("month", as_index=False)[realized_col]
+                .groupby(["month","asset_class"], as_index=False)[realized_col]
                 .sum()
-                .rename(columns={realized_col: "net_realized_pnl_usd"})
-                .sort_values("month")
+                .rename(columns={realized_col:"net_realized_pnl_usd"})
             )
 
             month_order_net = sorted(month_net_df["month"].unique().tolist())
 
-            month_net_chart = alt.Chart(month_net_df).mark_bar(color="#1565c0").encode(
+            month_net_chart = alt.Chart(month_net_df).mark_bar().encode(
                 x=alt.X("month:O", title="Month", sort=month_order_net),
                 y=alt.Y("net_realized_pnl_usd:Q", title="Net Realized PnL in USD"),
+                color=alt.Color(
+                    "asset_class:N",
+                    scale=alt.Scale(
+                        domain=["OPT","STK"],
+                        range=["#1d4ed8","#93c5fd"]
+                    ),
+                    title="Asset class"
+                ),
                 tooltip=[
                     alt.Tooltip("month:O", title="Month"),
+                    alt.Tooltip("asset_class:N", title="Asset class"),
                     alt.Tooltip("net_realized_pnl_usd:Q", title="Net Realized PnL USD", format=",.2f")
                 ]
             ).properties(height=260)
