@@ -35,8 +35,8 @@ page = st.sidebar.radio(
      "📈 Transactions",
      "Open option positions",
      "Open stock positions",
-     "📒 Closed positions / realized PnL (FIFO, USD)",
-     "📊 Realized PnL Analysis",
+     "📒 Closed positions / realized PnL (FIFO, USD) no option assignment",
+     "📊 Realized PnL Analysis (FIFO, USD) no option assignment",
      "Option ROI Calculator",
      "⚙️ Settings",
     ),
@@ -359,8 +359,8 @@ elif page == "📈 Transactions":
     else: 
         st.dataframe(df_tx)
 # ========================= PAGE: Closed positions / Realized PnL USD =========================
-elif page == "📒 Closed positions / realized PnL (FIFO, USD)":
-    st.header("Closed positions / realized PnL (FIFO, USD)")
+elif page == "📒 Closed positions / realized PnL (FIFO, USD) no option assignment":
+    st.header("Closed positions / realized PnL (FIFO, USD) no option assignment")
 
     df_rlz = load_realized(VIEW_REALIZED_FIFO_USD)
 
@@ -1093,8 +1093,8 @@ elif page == "Option ROI Calculator":
             unsafe_allow_html=True
         )
 # ========================= PAGE: Realized PnL Analysis =========================
-elif page == "📊 Realized PnL Analysis":
-    st.header("Realized PnL Analysis")
+elif page == "📊 Realized PnL Analysis (FIFO, USD) no option assignment":
+    st.header("Realized PnL Analysis (FIFO, USD) no option assignment")
 
     df_rlz = load_realized(VIEW_REALIZED_FIFO_USD)
 
