@@ -17,7 +17,7 @@ RIGHT_TABLE_H     = 260
 DB_URL               = st.secrets["DB_URL"]
 TABLE_DIVI           = st.secrets["TABLE_DIVI"]
 TABLE_TRANSACTIONS   = st.secrets["TABLE_TRANSACTIONS"]
-VIEW_REALIZED_FIFO = st.secrets["VIEW_REALIZED_FIFO"]
+#VIEW_REALIZED_FIFO = st.secrets["VIEW_REALIZED_FIFO"]
 VIEW_REALIZED_FIFO_USD = st.secrets["VIEW_REALIZED_FIFO_USD"]
 
 # --- refactor
