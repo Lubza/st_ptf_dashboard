@@ -43,6 +43,7 @@ TABLE_DIVI           = st.secrets["TABLE_DIVI"]
 TABLE_TRANSACTIONS   = st.secrets["TABLE_TRANSACTIONS"]
 #VIEW_REALIZED_FIFO = st.secrets["VIEW_REALIZED_FIFO"]
 VIEW_REALIZED_FIFO_USD = st.secrets["VIEW_REALIZED_FIFO_USD"]
+VIEW_REALIZED_FIFO_USD_ASSIGNMENT = st.secrets["VIEW_REALIZED_FIFO_USD_ASSIGNMENT"]
 
 # --- refactor
 @st.cache_resource
@@ -61,6 +62,8 @@ page = st.sidebar.radio(
      "Open stock positions",
      "📒 Closed positions / realized PnL (FIFO, USD) no option assignment",
      "📊 Realized PnL Analysis (FIFO, USD) no option assignment",
+     "📒 Closed positions / realized PnL (FIFO, USD) with option assignment",
+     "📊 Realized PnL Analysis (FIFO, USD) with option assignment",
      "Option ROI Calculator",
      "⚙️ Settings",
     ),
@@ -493,6 +496,116 @@ elif page == "📒 Closed positions / realized PnL (FIFO, USD) no option assignm
     st.caption(f"Rows: {trades_cnt}")
 
     # --- graph removed for now
+
+    st.subheader("Details")
+
+    display_cols = [
+        "instrument",
+        "qty_matched",
+        "open_date",
+        "close_date",
+        "open_price",
+        "close_price",
+        "currency_local",
+        "realized_local",
+        "realized_usd",
+        "commission_local",
+        "commission_usd",
+    ]
+    display_cols = [c for c in display_cols if c in df_f.columns]
+
+    df_disp = df_f[display_cols].copy()
+
+    for c in [
+        "qty_matched", "open_price", "close_price",
+        "realized_local", "realized_usd",
+        "commission_local", "commission_usd"
+    ]:
+        if c in df_disp.columns:
+            df_disp[c] = pd.to_numeric(df_disp[c], errors="coerce").round(4)
+
+    sort_cols = [c for c in ["close_date", "instrument"] if c in df_disp.columns]
+    if sort_cols:
+        ascending = [False, True] if len(sort_cols) == 2 else [False]
+        df_disp = df_disp.sort_values(sort_cols, ascending=ascending)
+
+    st.dataframe(
+        df_disp,
+        use_container_width=True,
+        hide_index=True
+    )
+
+# ========================= PAGE: Closed positions / Realized PnL USD WITH ASSIGNMENT =========================
+elif page == "📒 Closed positions / realized PnL (FIFO, USD) with option assignment":
+    st.header("Closed positions / realized PnL (FIFO, USD) with option assignment")
+
+    df_rlz = load_realized(VIEW_REALIZED_FIFO_USD_ASSIGNMENT)
+
+    if df_rlz.empty:
+        st.info("No realized lot matches in this assignment view yet.")
+        st.stop()
+
+    # --- normalize dates
+    for c in ["open_date", "close_date", "created_at"]:
+        if c in df_rlz.columns:
+            df_rlz[c] = pd.to_datetime(df_rlz[c], errors="coerce")
+
+    # --- filters
+    c1, c2, c3, c4 = st.columns([1.2, 1.0, 1.0, 1.0])
+
+    with c1:
+        tickers = sorted(df_rlz["ticker"].dropna().unique().tolist()) if "ticker" in df_rlz.columns else []
+        sel_ticker = st.multiselect("Ticker", options=tickers, default=[], key="ticker_closed_assignment")
+
+    with c2:
+        asset_opts = sorted(df_rlz["asset_class"].dropna().unique().tolist()) if "asset_class" in df_rlz.columns else []
+        sel_asset = st.multiselect("Asset class", options=asset_opts, default=[], key="asset_closed_assignment")
+
+    with c3:
+        date_rng = None
+        if "close_date" in df_rlz.columns and df_rlz["close_date"].notna().any():
+            min_d = df_rlz["close_date"].min().date()
+            max_d = df_rlz["close_date"].max().date()
+            date_rng = st.date_input("Close date range", value=(min_d, max_d), key="date_closed_assignment")
+        else:
+            st.caption("No close_date values available.")
+
+    with c4:
+        group_mode = st.selectbox("Group by", ["None", "Month", "Year"], index=1, key="group_closed_assignment")
+
+    df_f = df_rlz.copy()
+    if sel_ticker and "ticker" in df_f.columns:
+        df_f = df_f[df_f["ticker"].isin(sel_ticker)]
+    if sel_asset and "asset_class" in df_f.columns:
+        df_f = df_f[df_f["asset_class"].isin(sel_asset)]
+    if date_rng and "close_date" in df_f.columns and len(date_rng) == 2 and date_rng[0] and date_rng[1]:
+        start = pd.to_datetime(date_rng[0])
+        end = pd.to_datetime(date_rng[1]) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+        df_f = df_f[(df_f["close_date"] >= start) & (df_f["close_date"] <= end)]
+
+    # --- numeric cleanup
+    for col in [
+        "realized_local", "realized_usd", "commission_local", "commission_usd",
+        "qty_matched", "open_price", "close_price"
+    ]:
+        if col in df_f.columns:
+            df_f[col] = pd.to_numeric(df_f[col], errors="coerce")
+
+    # --- KPI
+    realized_local_total = pd.to_numeric(df_f.get("realized_local", 0), errors="coerce").fillna(0).sum()
+    realized_usd_total = pd.to_numeric(df_f.get("realized_usd", 0), errors="coerce").fillna(0).sum()
+    commission_local_total = pd.to_numeric(df_f.get("commission_local", 0), errors="coerce").fillna(0).sum()
+    commission_usd_total = pd.to_numeric(df_f.get("commission_usd", 0), errors="coerce").fillna(0).sum()
+
+    trades_cnt = len(df_f)
+
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Realized g/l local ccy", f"{realized_local_total:,.2f}")
+    k2.metric("Realized g/l USD", f"{realized_usd_total:,.2f}")
+    k3.metric("Commission local", f"{commission_local_total:,.2f}")
+    k4.metric("Commission USD", f"{commission_usd_total:,.2f}")
+
+    st.caption(f"Rows: {trades_cnt}")
 
     st.subheader("Details")
 
@@ -1376,6 +1489,249 @@ elif page == "📊 Realized PnL Analysis (FIFO, USD) no option assignment":
             st.altair_chart(month_net_chart, use_container_width=True)
 
             # 2) split / stacked graph second
+            st.markdown("#### Split Realized PnL in USD by Month")
+
+            chart_month_df = (
+                df_month
+                .groupby(["month", "asset_class", "pnl_type"], as_index=False)[realized_col]
+                .sum()
+                .rename(columns={realized_col: "realized_pnl_usd"})
+                .sort_values("month")
+            )
+
+            month_order = sorted(chart_month_df["month"].unique().tolist())
+
+            chart_month = alt.Chart(chart_month_df).mark_bar().encode(
+                x=alt.X("month:O", title="Month", sort=month_order),
+                y=alt.Y("realized_pnl_usd:Q", title="Realized PnL in USD"),
+                color=alt.Color("pnl_type:N", scale=color_scale, legend=None),
+                tooltip=[
+                    alt.Tooltip("month:O", title="Month"),
+                    alt.Tooltip("asset_class:N", title="Asset class"),
+                    alt.Tooltip("pnl_type:N", title="PnL type"),
+                    alt.Tooltip("realized_pnl_usd:Q", title="Realized PnL USD", format=",.2f")
+                ]
+            ).properties(height=350)
+
+            st.altair_chart(chart_month, use_container_width=True)
+# ========================= PAGE: Realized PnL Analysis WITH ASSIGNMENT =========================
+elif page == "📊 Realized PnL Analysis (FIFO, USD) with option assignment":
+    st.header("Realized PnL Analysis (FIFO, USD) with option assignment")
+
+    df_rlz = load_realized(VIEW_REALIZED_FIFO_USD_ASSIGNMENT)
+
+    if df_rlz.empty:
+        st.info("No realized data available.")
+        st.stop()
+
+    # dates
+    if "close_date" in df_rlz.columns:
+        df_rlz["close_date"] = pd.to_datetime(df_rlz["close_date"], errors="coerce")
+        df_rlz["year"] = df_rlz["close_date"].dt.year
+        df_rlz["month"] = df_rlz["close_date"].dt.to_period("M").astype(str)
+    else:
+        st.error("Column 'close_date' is missing.")
+        st.stop()
+
+    # realized pnl usd column
+    if "realized_pnl_usd_total" in df_rlz.columns:
+        realized_col = "realized_pnl_usd_total"
+    elif "realized_usd" in df_rlz.columns:
+        realized_col = "realized_usd"
+    else:
+        st.error("No USD realized PnL column found.")
+        st.stop()
+
+    df_rlz[realized_col] = pd.to_numeric(df_rlz[realized_col], errors="coerce").fillna(0)
+
+    df_rlz["pnl_type"] = df_rlz.apply(
+        lambda r: f"{r['asset_class']}_POS" if r[realized_col] >= 0 else f"{r['asset_class']}_NEG",
+        axis=1
+    )
+
+    color_scale = alt.Scale(
+        domain=["OPT_POS", "STK_POS", "OPT_NEG", "STK_NEG"],
+        range=[
+            "#16a34a",
+            "#86efac",
+            "#dc2626",
+            "#fca5a5"
+        ]
+    )
+
+    left_col, right_col = st.columns(2)
+
+    # =========================================================
+    # LEFT SIDE = YEAR
+    # =========================================================
+    with left_col:
+        st.subheader("Realized PnL in USD by Year")
+
+        ticker_options_y = sorted(df_rlz["ticker"].dropna().astype(str).unique()) if "ticker" in df_rlz.columns else []
+        selected_tickers_y = st.multiselect(
+            "Ticker",
+            options=ticker_options_y,
+            key="ticker_year_assignment"
+        )
+
+        asset_options_y = sorted(df_rlz["asset_class"].dropna().astype(str).unique()) if "asset_class" in df_rlz.columns else []
+        selected_asset_y = st.selectbox(
+            "Asset class",
+            options=["All"] + asset_options_y,
+            key="asset_year_assignment"
+        )
+
+        year_options_y = sorted(df_rlz["year"].dropna().astype(int).unique())
+        selected_years_y = st.multiselect(
+            "Year",
+            options=year_options_y,
+            default=year_options_y,
+            key="year_filter_year_chart_assignment"
+        )
+
+        df_year = df_rlz.copy()
+
+        if selected_tickers_y and "ticker" in df_year.columns:
+            df_year = df_year[df_year["ticker"].isin(selected_tickers_y)]
+
+        if selected_asset_y != "All" and "asset_class" in df_year.columns:
+            df_year = df_year[df_year["asset_class"] == selected_asset_y]
+
+        if selected_years_y:
+            df_year = df_year[df_year["year"].isin(selected_years_y)]
+
+        st.markdown("---")
+
+        if df_year.empty:
+            st.info("No data for selected filters.")
+        else:
+            st.markdown("#### Net Realized PnL in USD by Year")
+
+            year_net_df = (
+                df_year
+                .groupby(["year","asset_class"], as_index=False)[realized_col]
+                .sum()
+                .rename(columns={realized_col:"net_realized_pnl_usd"})
+            )
+
+            year_net_chart = alt.Chart(year_net_df).mark_bar().encode(
+                x=alt.X("year:O", title="Year"),
+                y=alt.Y("net_realized_pnl_usd:Q", title="Net Realized PnL in USD"),
+                color=alt.Color(
+                    "asset_class:N",
+                    scale=alt.Scale(
+                        domain=["OPT","STK"],
+                        range=["#1d4ed8","#93c5fd"]
+                    ),
+                    title="Asset class"
+                ),
+                tooltip=[
+                    alt.Tooltip("year:O", title="Year"),
+                    alt.Tooltip("asset_class:N", title="Asset class"),
+                    alt.Tooltip("net_realized_pnl_usd:Q", title="Net Realized PnL USD", format=",.2f")
+                ]
+            ).properties(height=260)
+
+            st.altair_chart(year_net_chart, use_container_width=True)
+
+            st.markdown("#### Split Realized PnL in USD by Year")
+
+            chart_year_df = (
+                df_year
+                .groupby(["year", "asset_class", "pnl_type"], as_index=False)[realized_col]
+                .sum()
+                .rename(columns={realized_col: "realized_pnl_usd"})
+            )
+
+            chart_year = alt.Chart(chart_year_df).mark_bar().encode(
+                x=alt.X("year:O", title="Year"),
+                y=alt.Y("realized_pnl_usd:Q", title="Realized PnL in USD"),
+                color=alt.Color("pnl_type:N", scale=color_scale, legend=None),
+                tooltip=[
+                    alt.Tooltip("year:O", title="Year"),
+                    alt.Tooltip("asset_class:N", title="Asset class"),
+                    alt.Tooltip("pnl_type:N", title="PnL type"),
+                    alt.Tooltip("realized_pnl_usd:Q", title="Realized PnL USD", format=",.2f")
+                ]
+            ).properties(height=350)
+
+            st.altair_chart(chart_year, use_container_width=True)
+
+    # =========================================================
+    # RIGHT SIDE = MONTH
+    # =========================================================
+    with right_col:
+        st.subheader("Realized PnL in USD by Month")
+
+        ticker_options_m = sorted(df_rlz["ticker"].dropna().astype(str).unique()) if "ticker" in df_rlz.columns else []
+        selected_tickers_m = st.multiselect(
+            "Ticker",
+            options=ticker_options_m,
+            key="ticker_month_assignment"
+        )
+
+        asset_options_m = sorted(df_rlz["asset_class"].dropna().astype(str).unique()) if "asset_class" in df_rlz.columns else []
+        selected_asset_m = st.selectbox(
+            "Asset class",
+            options=["All"] + asset_options_m,
+            key="asset_month_assignment"
+        )
+
+        year_options_m = sorted(df_rlz["year"].dropna().astype(int).unique())
+        selected_years_m = st.multiselect(
+            "Year",
+            options=year_options_m,
+            default=year_options_m,
+            key="year_filter_month_chart_assignment"
+        )
+
+        df_month = df_rlz.copy()
+
+        if selected_tickers_m and "ticker" in df_month.columns:
+            df_month = df_month[df_month["ticker"].isin(selected_tickers_m)]
+
+        if selected_asset_m != "All" and "asset_class" in df_month.columns:
+            df_month = df_month[df_month["asset_class"] == selected_asset_m]
+
+        if selected_years_m:
+            df_month = df_month[df_month["year"].isin(selected_years_m)]
+
+        st.markdown("---")
+
+        if df_month.empty:
+            st.info("No data for selected filters.")
+        else:
+            st.markdown("#### Net Realized PnL in USD by Month")
+
+            month_net_df = (
+                df_month
+                .groupby(["month","asset_class"], as_index=False)[realized_col]
+                .sum()
+                .rename(columns={realized_col:"net_realized_pnl_usd"})
+            )
+
+            month_order_net = sorted(month_net_df["month"].unique().tolist())
+
+            month_net_chart = alt.Chart(month_net_df).mark_bar().encode(
+                x=alt.X("month:O", title="Month", sort=month_order_net),
+                y=alt.Y("net_realized_pnl_usd:Q", title="Net Realized PnL in USD"),
+                color=alt.Color(
+                    "asset_class:N",
+                    scale=alt.Scale(
+                        domain=["OPT","STK"],
+                        range=["#1d4ed8","#93c5fd"]
+                    ),
+                    title="Asset class"
+                ),
+                tooltip=[
+                    alt.Tooltip("month:O", title="Month"),
+                    alt.Tooltip("asset_class:N", title="Asset class"),
+                    alt.Tooltip("net_realized_pnl_usd:Q", title="Net Realized PnL USD", format=",.2f")
+                ]
+            ).properties(height=260)
+
+            st.altair_chart(month_net_chart, use_container_width=True)
+
             st.markdown("#### Split Realized PnL in USD by Month")
 
             chart_month_df = (
