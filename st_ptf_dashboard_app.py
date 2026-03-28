@@ -357,7 +357,45 @@ elif page == "📈 Transactions":
     if df_tx.empty: 
         st.warning("No transactions in the table.") 
     else: 
-        st.dataframe(df_tx)
+        df = df_tx.copy()
+
+        # -------------------------------------------------
+        # SORT helper
+        # -------------------------------------------------
+        if "tradedate" in df.columns:
+            df["tradedate_sort"] = pd.to_datetime(
+                df["tradedate"].astype(str),
+                format="%Y%m%d",
+                errors="coerce"
+            )
+        else:
+            df["tradedate_sort"] = pd.NaT
+
+        # -------------------------------------------------
+        # FILTER: underlying symbol (dropdown)
+        # -------------------------------------------------
+        if "underlyingsymbol" in df.columns:
+            underlying_options = ["All"] + sorted(df["underlyingsymbol"].dropna().astype(str).unique().tolist())
+
+            selected_underlying = st.selectbox(
+                "Underlying symbol",
+                options=underlying_options,
+                index=0
+            )
+
+            if selected_underlying != "All":
+                df = df[df["underlyingsymbol"].astype(str) == selected_underlying]
+
+        # -------------------------------------------------
+        # SORT: newest tradedate first
+        # -------------------------------------------------
+        df = df.sort_values(by="tradedate_sort", ascending=False).drop(columns=["tradedate_sort"])
+
+        # -------------------------------------------------
+        # SHOW TABLE
+        # -------------------------------------------------
+        st.dataframe(df, use_container_width=True, hide_index=True)
+
 # ========================= PAGE: Closed positions / Realized PnL USD =========================
 elif page == "📒 Closed positions / realized PnL (FIFO, USD) no option assignment":
     st.header("Closed positions / realized PnL (FIFO, USD) no option assignment")
