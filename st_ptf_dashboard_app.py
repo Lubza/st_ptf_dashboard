@@ -7,6 +7,30 @@ import yfinance as yf
 
 st.set_page_config(layout="wide")
 
+APP_PASSWORD = st.secrets["APP_PASSWORD"]
+
+def check_password():
+    if st.session_state.get("authenticated", False):
+        return True
+
+    st.title("Login required")
+    st.write("Please enter password to access the dashboard.")
+
+    password = st.text_input("Password", type="password")
+
+    if st.button("Login"):
+        if password == APP_PASSWORD:
+            st.session_state["authenticated"] = True
+            st.rerun()
+        else:
+            st.error("Incorrect password")
+
+    return False
+
+if not check_password():
+    st.stop()
+
+
 # === Layout constants ===
 CHART_WIDTH_LEFT  = 700
 CHART_WIDTH_TAB2  = 700
