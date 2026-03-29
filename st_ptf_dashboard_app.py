@@ -55,24 +55,6 @@ engine = get_engine()
 # --- SIDEBAR
 st.sidebar.title("📂 Navigation")
 
-# --- Global PnL mode
-global_mode = st.sidebar.radio(
-    "PnL Mode",
-    ["No option assignment", "With option assignment"],
-    key="global_pnl_mode"
-)
-
-if global_mode == "With option assignment":
-    st.success("Assignment logic ACTIVE")
-else:
-    st.info("Standard FIFO (no assignment)")
-
-VIEW_REALIZED_ACTIVE = (
-    VIEW_REALIZED_FIFO_USD_ASSIGNMENT
-    if global_mode == "With option assignment"
-    else VIEW_REALIZED_FIFO_USD
-)
-
 page = st.sidebar.radio(
     "Go to:",
     ("📊 Dividends Overview",
@@ -446,8 +428,21 @@ elif page == "📒 Closed positions / realized PnL (FIFO, USD)":
     st.header("Closed positions / realized PnL (FIFO, USD)")
 
     # 🔁 TOGGLE
-    st.caption(f"Current mode: {global_mode}")
-    df_rlz = load_realized(VIEW_REALIZED_ACTIVE)
+    assignment_mode = st.radio(
+        "Option assignment",
+        ["No", "Yes"],
+        horizontal=True,
+        key="closed_assignment_mode"
+    )
+
+    selected_view = (
+        VIEW_REALIZED_FIFO_USD_ASSIGNMENT
+        if assignment_mode == "Yes"
+        else VIEW_REALIZED_FIFO_USD
+    )
+
+    st.caption(f"Option assignment: {assignment_mode}")
+    df_rlz = load_realized(selected_view)
 
     if df_rlz.empty:
         st.info("No realized lot matches in this view yet.")
@@ -476,9 +471,6 @@ elif page == "📒 Closed positions / realized PnL (FIFO, USD)":
             date_rng = st.date_input("Close date range", (min_d, max_d))
         else:
             date_rng = None
-
-    with c4:
-        st.caption(f"Mode: {global_mode}")
 
     df_f = df_rlz.copy()
 
@@ -1143,8 +1135,21 @@ elif page == "📊 Realized PnL Analysis (FIFO, USD)":
     st.header("Realized PnL Analysis (FIFO, USD)")
 
     # 🔁 TOGGLE
-    st.caption(f"Current mode: {global_mode}")
-    df_rlz = load_realized(VIEW_REALIZED_ACTIVE)
+    assignment_mode = st.radio(
+        "Option assignment",
+        ["No", "Yes"],
+        horizontal=True,
+        key="analysis_assignment_mode"
+    )
+
+    selected_view = (
+        VIEW_REALIZED_FIFO_USD_ASSIGNMENT
+        if assignment_mode == "Yes"
+        else VIEW_REALIZED_FIFO_USD
+    )
+
+    st.caption(f"Option assignment: {assignment_mode}")
+    df_rlz = load_realized(selected_view)
 
     if df_rlz.empty:
         st.info("No realized data available.")
