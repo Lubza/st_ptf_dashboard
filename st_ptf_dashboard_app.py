@@ -1400,16 +1400,274 @@ elif page == "📊 Realized PnL Analysis (FIFO, USD)":
             ).properties(height=350)
 
             st.altair_chart(chart_month, use_container_width=True)
-
-# ========================= PAGE: Deposits & Withdrawals =========================
+  
+    # ========================= PAGE: Deposits & Withdrawals =========================
 elif page == "💸 Deposits & Withdrawals":
     st.header("💸 Deposits & Withdrawals")
-    
+
     if df_dw.empty:
         st.info("No deposits / withdrawals data available.")
-    else:
-        st.write("Rows loaded:", len(df_dw))
-        st.dataframe(df_dw.head(20), use_container_width=True, hide_index=True)
+        st.stop()
+
+    df = df_dw.copy()
+    df.columns = [c.lower() for c in df.columns]
+
+    # --- normalize columns
+    df["datetime"] = pd.to_datetime(df["datetime"], errors="coerce")
+    df["amount"] = pd.to_numeric(df["amount"], errors="coerce").fillna(0)
+    df["amountusd"] = pd.to_numeric(df["amountusd"], errors="coerce").fillna(0)
+
+    df = df.dropna(subset=["datetime"]).copy()
+
+    df["year"] = df["datetime"].dt.year
+    df["month_num"] = df["datetime"].dt.month
+    df["month"] = df["datetime"].dt.strftime("%b")
+    df["type"] = np.where(df["amountusd"] >= 0, "Deposit", "Withdrawal")
+
+    today = pd.Timestamp.today()
+    current_year = today.year
+    previous_year = current_year - 1
+    target_usd = 10000
+
+    # --- KPI values
+    ytd_df = df[df["year"] == current_year].copy()
+    prev_year_df = df[df["year"] == previous_year].copy()
+
+    ytd_net = ytd_df["amountusd"].sum()
+    prev_year_net = prev_year_df["amountusd"].sum()
+    target_pct = (ytd_net / target_usd * 100) if target_usd != 0 else 0
+
+    # --- KPI row
+    k1, k2, k3 = st.columns(3)
+    k1.metric("YTD net (USD)", f"{ytd_net:,.0f}")
+    k2.metric("Previous year net (USD)", f"{prev_year_net:,.0f}")
+
+    target_bg = "#dcfce7" if ytd_net >= 0 else "#fee2e2"
+    target_border = "#22c55e" if ytd_net >= 0 else "#ef4444"
+    target_text = "#166534" if ytd_net >= 0 else "#991b1b"
+
+    with k3:
+        st.markdown(
+            f"""
+            <div style="
+                background-color: {target_bg};
+                border: 1px solid {target_border};
+                border-radius: 10px;
+                padding: 12px 14px;
+                margin-bottom: 12px;
+            ">
+                <div style="
+                    font-size: 14px;
+                    color: #111827;
+                    font-weight: 600;
+                    margin-bottom: 4px;
+                ">Target</div>
+                <div style="
+                    font-size: 22px;
+                    color: {target_text};
+                    font-weight: 700;
+                ">Target: {ytd_net:,.0f} / {target_usd:,.0f} USD ({target_pct:.0f}%)</div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+    st.markdown("---")
+
+    left_col, right_col = st.columns([2.2, 1.1])
+
+    # ================= LEFT SIDE =================
+    with left_col:
+        # ---------- YEAR CHART ----------
+        st.subheader("Transfers by Year")
+
+        selected_types_year = st.multiselect(
+            "Movement type",
+            options=["Deposits", "Withdrawals"],
+            default=["Deposits", "Withdrawals"],
+            key="dw_types_year"
+        )
+
+        selected_years_year = st.multiselect(
+            "Year",
+            options=sorted(df["year"].dropna().unique().tolist()),
+            default=sorted(df["year"].dropna().unique().tolist()),
+            key="dw_years_year"
+        )
+
+        df_year = df.copy()
+        if selected_years_year:
+            df_year = df_year[df_year["year"].isin(selected_years_year)]
+
+        if selected_types_year == ["Deposits"]:
+            df_year_chart = (
+                df_year[df_year["amountusd"] > 0]
+                .groupby("year", as_index=False)["amountusd"]
+                .sum()
+            )
+        elif selected_types_year == ["Withdrawals"]:
+            df_year_chart = (
+                df_year[df_year["amountusd"] < 0]
+                .groupby("year", as_index=False)["amountusd"]
+                .sum()
+            )
+        else:
+            df_year_chart = (
+                df_year.groupby("year", as_index=False)["amountusd"]
+                .sum()
+            )
+
+        if df_year_chart.empty:
+            st.info("No data for selected filters.")
+        else:
+            df_year_chart["bar_color"] = np.where(
+                df_year_chart["amountusd"] >= 0,
+                "#16a34a",
+                "#dc2626"
+            )
+
+            year_bar = alt.Chart(df_year_chart).mark_bar().encode(
+                x=alt.X("year:O", title="Year"),
+                y=alt.Y("amountusd:Q", title="Amount USD"),
+                color=alt.Color("bar_color:N", scale=None, legend=None),
+                tooltip=[
+                    alt.Tooltip("year:O", title="Year"),
+                    alt.Tooltip("amountusd:Q", title="Amount USD", format=",.2f"),
+                ],
+            )
+
+            year_text = alt.Chart(df_year_chart).mark_text(
+                dy=-8,
+                fontSize=12
+            ).encode(
+                x=alt.X("year:O"),
+                y=alt.Y("amountusd:Q"),
+                text=alt.Text("amountusd:Q", format=",.0f")
+            )
+
+            st.altair_chart(
+                (year_bar + year_text).properties(height=320),
+                use_container_width=True
+            )
+
+        st.markdown("---")
+
+        # ---------- MONTH CHART ----------
+        st.subheader("Transfers by Month")
+
+        selected_types_month = st.multiselect(
+            "Movement type ",
+            options=["Deposits", "Withdrawals"],
+            default=["Deposits", "Withdrawals"],
+            key="dw_types_month"
+        )
+
+        selected_years_month = st.multiselect(
+            "Year ",
+            options=sorted(df["year"].dropna().unique().tolist()),
+            default=[current_year] if current_year in df["year"].unique() else sorted(df["year"].dropna().unique().tolist()),
+            key="dw_years_month"
+        )
+
+        df_month = df.copy()
+        if selected_years_month:
+            df_month = df_month[df_month["year"].isin(selected_years_month)]
+
+        if selected_types_month == ["Deposits"]:
+            df_month = df_month[df_month["amountusd"] > 0]
+        elif selected_types_month == ["Withdrawals"]:
+            df_month = df_month[df_month["amountusd"] < 0]
+
+        month_order = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                       "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+        month_chart_df = (
+            df_month.groupby(["year", "month", "month_num"], as_index=False)["amountusd"]
+            .sum()
+            .sort_values(["month_num", "year"])
+        )
+
+        if month_chart_df.empty:
+            st.info("No monthly data for selected filters.")
+        else:
+            month_bar = alt.Chart(month_chart_df).mark_bar().encode(
+                x=alt.X("month:O", sort=month_order, title="Month"),
+                y=alt.Y("amountusd:Q", title="Amount USD"),
+                color=alt.Color("year:N", title="Year"),
+                xOffset="year:N",
+                tooltip=[
+                    alt.Tooltip("year:N", title="Year"),
+                    alt.Tooltip("month:O", title="Month"),
+                    alt.Tooltip("amountusd:Q", title="Amount USD", format=",.2f"),
+                ],
+            )
+
+            month_text = alt.Chart(month_chart_df).mark_text(
+                dy=-8,
+                fontSize=11
+            ).encode(
+                x=alt.X("month:O", sort=month_order),
+                y=alt.Y("amountusd:Q"),
+                xOffset="year:N",
+                text=alt.Text("amountusd:Q", format=",.0f")
+            )
+
+            st.altair_chart(
+                (month_bar + month_text).properties(height=320),
+                use_container_width=True
+            )
+
+    # ================= RIGHT SIDE =================
+    with right_col:
+        st.subheader("YTD Transfers")
+
+        ytd_table = ytd_df.copy()
+        ytd_table["type"] = np.where(ytd_table["amountusd"] >= 0, "Deposit", "Withdrawal")
+        ytd_table["date"] = ytd_table["datetime"].dt.strftime("%Y-%m-%d")
+        ytd_table = ytd_table.sort_values("datetime", ascending=False)
+
+        st.dataframe(
+            ytd_table[["date", "amountusd", "type"]].rename(columns={
+                "date": "Date",
+                "amountusd": "Amount",
+                "type": "Type"
+            }),
+            use_container_width=True,
+            hide_index=True,
+            height=320,
+            column_config={
+                "Amount": st.column_config.NumberColumn(format="%.2f")
+            }
+        )
+
+        st.markdown("---")
+        st.subheader("Overview")
+
+        overview_df = (
+            df.groupby("year", as_index=False)
+            .agg(
+                **{
+                    "Net total": ("amountusd", "sum"),
+                    "Deposits": ("amountusd", lambda s: s[s > 0].sum()),
+                    "Withdrawals": ("amountusd", lambda s: s[s < 0].sum()),
+                }
+            )
+            .sort_values("year", ascending=False)
+            .rename(columns={"year": "Year"})
+        )
+
+        st.dataframe(
+            overview_df,
+            use_container_width=True,
+            hide_index=True,
+            height=320,
+            column_config={
+                "Year": st.column_config.NumberColumn(format="%d"),
+                "Net total": st.column_config.NumberColumn(format="%.2f"),
+                "Deposits": st.column_config.NumberColumn(format="%.2f"),
+                "Withdrawals": st.column_config.NumberColumn(format="%.2f"),
+            }
+        )
 
 # ========================= PAGE: Settings =========================
 else:
