@@ -64,6 +64,7 @@ page = st.sidebar.radio(
      "📒 Closed positions / realized PnL (FIFO, USD)",
      "📊 Realized PnL Analysis (FIFO, USD)",
      "Option ROI Calculator",
+     "💸 Deposits & Withdrawals",
      "⚙️ Settings",
     ),
     key="nav"
@@ -88,8 +89,15 @@ def load_transactions() -> pd.DataFrame:
     df.columns = [c.lower() for c in df.columns]
     return df
 
+@st.cache_data(ttl=600)
+def load_deposits_withdrawals() -> pd.DataFrame:
+    df = pd.read_sql('SELECT * FROM ib_deposits_withdrawals', engine)
+    df.columns = [c.lower() for c in df.columns]
+    return df
+
 df_divi = load_dividends()
 df_tx   = load_transactions()
+df_dw = load_deposits_withdrawals()
 
 @st.cache_data(ttl=3600)
 def fetch_eod_close(symbols: list[str]) -> pd.DataFrame:
@@ -1392,6 +1400,16 @@ elif page == "📊 Realized PnL Analysis (FIFO, USD)":
             ).properties(height=350)
 
             st.altair_chart(chart_month, use_container_width=True)
+
+# ========================= PAGE: Deposits & Withdrawals =========================
+elif page == "💸 Deposits & Withdrawals":
+    st.header("💸 Deposits & Withdrawals")
+    
+    if df_dw.empty:
+        st.info("No deposits / withdrawals data available.")
+    else:
+        st.write("Rows loaded:", len(df_dw))
+        st.dataframe(df_dw.head(20), use_container_width=True, hide_index=True)
 
 # ========================= PAGE: Settings =========================
 else:
