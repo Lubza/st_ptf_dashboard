@@ -7,6 +7,30 @@ import yfinance as yf
 
 st.set_page_config(layout="wide")
 
+st.markdown("""
+<style>
+/* Multiselect selected tags / chips */
+span[data-baseweb="tag"] {
+    background-color: #dbeafe !important;   /* light blue */
+    border: 1px solid #93c5fd !important;
+    color: #1e3a8a !important;
+    border-radius: 8px !important;
+}
+
+/* text inside selected chip */
+span[data-baseweb="tag"] span {
+    color: #1e3a8a !important;
+    font-weight: 600 !important;
+}
+
+/* X icon inside chip */
+span[data-baseweb="tag"] svg {
+    fill: #1e3a8a !important;
+    color: #1e3a8a !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 APP_PASSWORD = st.secrets["APP_PASSWORD"]
 
 def check_password():
