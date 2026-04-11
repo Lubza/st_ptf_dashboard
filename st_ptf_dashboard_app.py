@@ -87,6 +87,7 @@ page = st.sidebar.radio(
      "Open stock positions",
      "📒 Closed positions / realized PnL (FIFO, USD)",
      "📊 Realized PnL Analysis (FIFO, USD)",
+     "📈 Return Distribution",
      "Option ROI Calculator",
      "💸 Deposits & Withdrawals",
      "⚙️ Settings",
@@ -176,6 +177,86 @@ def load_realized(view_name: str) -> pd.DataFrame:
     df = pd.read_sql(f"SELECT * FROM {view_name}", engine)
     df.columns = [c.lower() for c in df.columns]
     return df
+
+def prepare_return_distribution_df(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    df.columns = [c.lower() for c in df.columns]
+
+    # dates
+    if "close_date" in df.columns:
+        df["close_date_dt"] = pd.to_datetime(df["close_date"].astype(str), format="%Y%m%d", errors="coerce")
+        df["year"] = df["close_date_dt"].dt.year
+
+    if "open_date" in df.columns:
+        df["open_date_dt"] = pd.to_datetime(df["open_date"].astype(str), format="%Y%m%d", errors="coerce")
+
+    # numeric cleanup
+    for col in [
+        "holding_days", "realized_usd", "realized_local",
+        "commission_usd", "commission_local",
+        "cost_basis_usd", "cost_basis_local",
+        "return_pct", "return_pa_pct"
+    ]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    df["holding_days"] = df.get("holding_days", pd.Series(index=df.index, dtype=float)).fillna(1).clip(lower=1)
+
+    df["net_realized_usd"] = (
+        df.get("realized_usd", 0).fillna(0) - df.get("commission_usd", 0).fillna(0)
+    )
+    df["net_realized_local"] = (
+        df.get("realized_local", 0).fillna(0) - df.get("commission_local", 0).fillna(0)
+    )
+
+    cost_basis_usd = df.get("cost_basis_usd", pd.Series(index=df.index, dtype=float))
+    cost_basis_usd = pd.to_numeric(cost_basis_usd, errors="coerce")
+
+    df["return_pct_net"] = np.where(
+        cost_basis_usd.fillna(0) != 0,
+        df["net_realized_usd"] / cost_basis_usd,
+        np.nan
+    )
+
+    df["return_pa_pct_net"] = np.where(
+        df["holding_days"].fillna(0) > 0,
+        df["return_pct_net"] * 365 / df["holding_days"],
+        np.nan
+    )
+
+    return df
+
+
+def build_return_buckets(series: pd.Series, metric_kind: str) -> pd.Categorical:
+    s = pd.to_numeric(series, errors="coerce")
+
+    if metric_kind == "pa":
+        bins = [-np.inf, 0, 0.25, 0.50, 1.0, 2.0, 5.0, np.inf]
+        labels = [
+            "< 0%",
+            "0% to 25%",
+            "25% to 50%",
+            "50% to 100%",
+            "100% to 200%",
+            "200% to 500%",
+            "500%+",
+        ]
+    else:
+        bins = [-np.inf, -0.50, -0.20, -0.10, 0, 0.05, 0.10, 0.20, 0.50, 1.0, np.inf]
+        labels = [
+            "< -50%",
+            "-50% to -20%",
+            "-20% to -10%",
+            "-10% to 0%",
+            "0% to 5%",
+            "5% to 10%",
+            "10% to 20%",
+            "20% to 50%",
+            "50% to 100%",
+            "100%+",
+        ]
+
+    return pd.cut(s, bins=bins, labels=labels, include_lowest=True, right=False)
 
 # --- Basic cleanup for dividends
 if not df_divi.empty:
@@ -483,7 +564,7 @@ elif page == "📒 Closed positions / realized PnL (FIFO, USD)":
     # --- dátumy ---
     for c in ["open_date", "close_date", "created_at"]:
         if c in df_rlz.columns:
-            df_rlz[c] = pd.to_datetime(df_rlz[c], errors="coerce")
+            df_rlz[c] = pd.to_datetime(df_rlz[c].astype(str), format="%Y%m%d", errors="coerce")
 
     # --- filtre ---
     c1, c2, c3, c4 = st.columns([1.2, 1.0, 1.0, 1.0])
@@ -1189,7 +1270,7 @@ elif page == "📊 Realized PnL Analysis (FIFO, USD)":
 
     # dates
     if "close_date" in df_rlz.columns:
-        df_rlz["close_date"] = pd.to_datetime(df_rlz["close_date"], errors="coerce")
+        df_rlz["close_date"] = pd.to_datetime(df_rlz["close_date"].astype(str), format="%Y%m%d", errors="coerce")
         df_rlz["year"] = df_rlz["close_date"].dt.year
         df_rlz["month"] = df_rlz["close_date"].dt.to_period("M").astype(str)
     else:
@@ -1692,6 +1773,205 @@ elif page == "💸 Deposits & Withdrawals":
                 "Withdrawals": st.column_config.NumberColumn(format="%.2f"),
             }
         )
+
+elif page == "📈 Return Distribution":
+    st.header("Return Distribution")
+
+    assignment_mode = st.radio(
+        "Option assignment",
+        ["No", "Yes"],
+        horizontal=True,
+        key="return_dist_assignment_mode"
+    )
+
+    selected_view = (
+        VIEW_REALIZED_FIFO_USD_ASSIGNMENT
+        if assignment_mode == "Yes"
+        else VIEW_REALIZED_FIFO_USD
+    )
+
+    df_rlz = load_realized(selected_view)
+
+    if df_rlz.empty:
+        st.info("No realized data available.")
+        st.stop()
+
+    df = prepare_return_distribution_df(df_rlz)
+
+    top1, top2, top3, top4, top5 = st.columns(5)
+
+    with top1:
+        return_metric = st.selectbox(
+            "Metric",
+            ["Return %", "Return % p.a."],
+            key="rd_metric"
+        )
+
+    with top2:
+        gross_net = st.selectbox(
+            "Gross / Net",
+            ["Gross", "Net"],
+            key="rd_gross_net"
+        )
+
+    with top3:
+        weighting = st.selectbox(
+            "Weighting",
+            ["Count of trades", "Realized USD"],
+            key="rd_weighting"
+        )
+
+    with top4:
+        asset_options = sorted(df["asset_class"].dropna().astype(str).unique().tolist()) if "asset_class" in df.columns else []
+        selected_asset = st.selectbox(
+            "Asset class",
+            ["All"] + asset_options,
+            key="rd_asset"
+        )
+
+    with top5:
+        year_options = sorted(df["year"].dropna().astype(int).unique().tolist()) if "year" in df.columns else []
+        selected_years = st.multiselect(
+            "Year",
+            options=year_options,
+            default=year_options,
+            key="rd_years"
+        )
+
+    row2_col1, row2_col2 = st.columns([2, 1])
+
+    with row2_col1:
+        ticker_options = sorted(df["ticker"].dropna().astype(str).unique().tolist()) if "ticker" in df.columns else []
+        selected_tickers = st.multiselect(
+            "Ticker",
+            options=ticker_options,
+            key="rd_tickers"
+        )
+
+    with row2_col2:
+        exclude_zero = st.checkbox("Exclude zero returns", value=False, key="rd_ex_zero")
+
+    df_f = df.copy()
+
+    if selected_asset != "All" and "asset_class" in df_f.columns:
+        df_f = df_f[df_f["asset_class"] == selected_asset]
+
+    if selected_years and "year" in df_f.columns:
+        df_f = df_f[df_f["year"].isin(selected_years)]
+
+    if selected_tickers and "ticker" in df_f.columns:
+        df_f = df_f[df_f["ticker"].isin(selected_tickers)]
+
+    if return_metric == "Return %":
+        metric_col = "return_pct" if gross_net == "Gross" else "return_pct_net"
+        metric_kind = "std"
+        chart_title = f"Return Distribution — {gross_net} Return %"
+    else:
+        metric_col = "return_pa_pct" if gross_net == "Gross" else "return_pa_pct_net"
+        metric_kind = "pa"
+        chart_title = f"Return Distribution — {gross_net} Return % p.a."
+
+    df_f[metric_col] = pd.to_numeric(df_f[metric_col], errors="coerce")
+
+    if exclude_zero:
+        df_f = df_f[df_f[metric_col] != 0]
+
+    df_f = df_f[df_f[metric_col].notna()].copy()
+
+    if df_f.empty:
+        st.info("No data for selected filters.")
+        st.stop()
+
+    df_f["return_bucket"] = build_return_buckets(df_f[metric_col], metric_kind)
+
+    if weighting == "Count of trades":
+        dist = (
+            df_f.groupby("return_bucket", dropna=False)
+                .size()
+                .reset_index(name="value")
+        )
+        value_title = "Count of trades"
+        value_format = ",.0f"
+    else:
+        weight_col = "realized_usd" if gross_net == "Gross" else "net_realized_usd"
+        dist = (
+            df_f.groupby("return_bucket", dropna=False)[weight_col]
+                .sum()
+                .reset_index(name="value")
+        )
+        value_title = "Realized USD"
+        value_format = ",.2f"
+
+    dist["bucket_order"] = range(len(dist))
+    dist["value_abs"] = dist["value"].abs()
+
+    total_rows = len(df_f)
+    avg_metric = df_f[metric_col].mean()
+    median_metric = df_f[metric_col].median()
+    positive_share = (df_f[metric_col] > 0).mean() * 100 if total_rows else 0
+
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Rows", f"{total_rows:,}")
+    k2.metric("Average return", f"{avg_metric*100:,.2f}%")
+    k3.metric("Median return", f"{median_metric*100:,.2f}%")
+    k4.metric("Positive return share", f"{positive_share:,.1f}%")
+
+    chart = (
+        alt.Chart(dist)
+        .mark_bar(cornerRadiusTopRight=4, cornerRadiusBottomRight=4)
+        .encode(
+            y=alt.Y("return_bucket:N", sort=None, title=None),
+            x=alt.X("value_abs:Q", title=value_title),
+            color=alt.Color("return_bucket:N", legend=None),
+            tooltip=[
+                alt.Tooltip("return_bucket:N", title="Bucket"),
+                alt.Tooltip("value:Q", title=value_title, format=value_format),
+            ],
+        )
+        .properties(height=420, title=chart_title)
+    )
+
+    labels = (
+        alt.Chart(dist)
+        .mark_text(align="left", dx=6, fontSize=12)
+        .encode(
+            y=alt.Y("return_bucket:N", sort=None),
+            x=alt.X("value_abs:Q"),
+            text=alt.Text("value:Q", format=value_format),
+        )
+    )
+
+    st.altair_chart(chart + labels, use_container_width=True)
+
+    st.markdown("### Distribution table")
+
+    table_df = df_f.copy()
+    table_df["return_display_pct"] = table_df[metric_col] * 100
+
+    bucket_summary = (
+        table_df.groupby("return_bucket", dropna=False)
+        .agg(
+            rows=(metric_col, "size"),
+            avg_return_pct=("return_display_pct", "mean"),
+            median_return_pct=("return_display_pct", "median"),
+            gross_realized_usd=("realized_usd", "sum"),
+            net_realized_usd=("net_realized_usd", "sum"),
+        )
+        .reset_index()
+    )
+
+    st.dataframe(
+        bucket_summary,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "rows": st.column_config.NumberColumn(format="%d"),
+            "avg_return_pct": st.column_config.NumberColumn("Avg return %", format="%.2f"),
+            "median_return_pct": st.column_config.NumberColumn("Median return %", format="%.2f"),
+            "gross_realized_usd": st.column_config.NumberColumn("Gross realized USD", format="%.2f"),
+            "net_realized_usd": st.column_config.NumberColumn("Net realized USD", format="%.2f"),
+        }
+    )
 
 # ========================= PAGE: Settings =========================
 else:
