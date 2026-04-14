@@ -1273,6 +1273,7 @@ elif page == "📊 Realized PnL Analysis (FIFO, USD)":
         df_rlz["close_date"] = pd.to_datetime(df_rlz["close_date"].astype(str), format="%Y%m%d", errors="coerce")
         df_rlz["year"] = df_rlz["close_date"].dt.year
         df_rlz["month"] = df_rlz["close_date"].dt.to_period("M").astype(str)
+        current_year = pd.Timestamp.today().year
     else:
         st.error("Column 'close_date' is missing.")
         st.stop()
@@ -1326,10 +1327,11 @@ elif page == "📊 Realized PnL Analysis (FIFO, USD)":
         )
 
         year_options_y = sorted(df_rlz["year"].dropna().astype(int).unique())
+        default_years_y = [current_year] if current_year in year_options_y else ([year_options_y[-1]] if year_options_y else [])
         selected_years_y = st.multiselect(
             "Year",
             options=year_options_y,
-            default=year_options_y,
+            default=default_years_y,
             key="year_filter_year_chart"
         )
 
@@ -1424,10 +1426,11 @@ elif page == "📊 Realized PnL Analysis (FIFO, USD)":
         )
 
         year_options_m = sorted(df_rlz["year"].dropna().astype(int).unique())
+        default_years_m = [current_year] if current_year in year_options_m else ([year_options_m[-1]] if year_options_m else [])
         selected_years_m = st.multiselect(
             "Year",
             options=year_options_m,
-            default=year_options_m,
+            default=default_years_m,
             key="year_filter_month_chart"
         )
 
