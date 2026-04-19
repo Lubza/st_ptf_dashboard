@@ -270,44 +270,74 @@ def prepare_realized_pnl_table_df(df: pd.DataFrame) -> pd.DataFrame:
         df["year"] = df["close_date_dt"].dt.year
         df["month"] = df["close_date_dt"].dt.to_period("M").astype(str)
 
-    for col in ["realized_usd", "holding_days"]:
+    for col in ["realized_usd", "holding_days", "commission_usd"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
 
     df["realized_usd"] = df.get("realized_usd", 0).fillna(0)
+    df["commission_usd"] = df.get("commission_usd", 0).fillna(0)
     df["holding_days"] = df.get("holding_days", 0).fillna(0)
+
+    df["realized_usd_net"] = df["realized_usd"] - df["commission_usd"]
 
     df["asset_class"] = df.get("asset_class", "").astype(str).str.upper().str.strip()
 
-    # Time test applies only to STK
-    df["over_1_year_value"] = np.where(
+    # Gross split
+    df["over_1_year_value_gross"] = np.where(
         (df["asset_class"] == "STK") & (df["holding_days"] > 365),
         df["realized_usd"],
         0.0
     )
 
-    df["up_to_1_year_value"] = np.where(
+    df["up_to_1_year_value_gross"] = np.where(
         (df["asset_class"] == "STK") & (df["holding_days"] > 365),
         0.0,
         df["realized_usd"]
     )
 
+    # Net split
+    df["over_1_year_value_net"] = np.where(
+        (df["asset_class"] == "STK") & (df["holding_days"] > 365),
+        df["realized_usd_net"],
+        0.0
+    )
+
+    df["up_to_1_year_value_net"] = np.where(
+        (df["asset_class"] == "STK") & (df["holding_days"] > 365),
+        0.0,
+        df["realized_usd_net"]
+    )
+
     return df
 
 
-def build_realized_pnl_summary(df: pd.DataFrame, period_col: str, period_label: str) -> pd.DataFrame:
+def build_realized_pnl_summary(
+    df: pd.DataFrame,
+    period_col: str,
+    period_label: str,
+    gross_net: str = "Gross"
+) -> pd.DataFrame:
+    if gross_net == "Net":
+        realized_col = "realized_usd_net"
+        over_col = "over_1_year_value_net"
+        upto_col = "up_to_1_year_value_net"
+    else:
+        realized_col = "realized_usd"
+        over_col = "over_1_year_value_gross"
+        upto_col = "up_to_1_year_value_gross"
+
     if df.empty:
         return pd.DataFrame(columns=[
             period_label, "STK", "OPT", "Total P/L", "Over 1 year", "Up to 1 year"
         ])
 
     base = (
-        df.groupby([period_col, "asset_class"], as_index=False)["realized_usd"]
+        df.groupby([period_col, "asset_class"], as_index=False)[realized_col]
           .sum()
     )
 
     pivot = (
-        base.pivot(index=period_col, columns="asset_class", values="realized_usd")
+        base.pivot(index=period_col, columns="asset_class", values=realized_col)
             .fillna(0)
             .reset_index()
     )
@@ -318,15 +348,15 @@ def build_realized_pnl_summary(df: pd.DataFrame, period_col: str, period_label: 
         pivot["OPT"] = 0.0
 
     over_df = (
-        df.groupby(period_col, as_index=False)["over_1_year_value"]
+        df.groupby(period_col, as_index=False)[over_col]
           .sum()
-          .rename(columns={"over_1_year_value": "Over 1 year"})
+          .rename(columns={over_col: "Over 1 year"})
     )
 
     upto_df = (
-        df.groupby(period_col, as_index=False)["up_to_1_year_value"]
+        df.groupby(period_col, as_index=False)[upto_col]
           .sum()
-          .rename(columns={"up_to_1_year_value": "Up to 1 year"})
+          .rename(columns={upto_col: "Up to 1 year"})
     )
 
     out = pivot.merge(over_df, on=period_col, how="left").merge(upto_df, on=period_col, how="left")
@@ -337,7 +367,6 @@ def build_realized_pnl_summary(df: pd.DataFrame, period_col: str, period_label: 
     out["Up to 1 year"] = pd.to_numeric(out["Up to 1 year"], errors="coerce").fillna(0)
 
     out["Total P/L"] = out["STK"] + out["OPT"]
-
     out = out.rename(columns={period_col: period_label})
 
     return out[[period_label, "STK", "OPT", "Total P/L", "Over 1 year", "Up to 1 year"]]
@@ -2069,13 +2098,20 @@ elif page == "📋 Realized PnL table":
         key="pnl_table_assignment_mode"
     )
 
+    gross_net_mode = st.radio(
+        "Gross / Net",
+        ["Gross", "Net"],
+        horizontal=True,
+        key="pnl_table_gross_net_mode"
+    )
+
     selected_view = (
         VIEW_REALIZED_FIFO_USD_ASSIGNMENT
         if assignment_mode == "Yes"
         else VIEW_REALIZED_FIFO_USD
     )
 
-    st.caption(f"Option assignment: {assignment_mode}")
+    st.caption(f"Option assignment: {assignment_mode} | Mode: {gross_net_mode}")
 
     df_rlz = load_realized(selected_view)
 
@@ -2087,11 +2123,13 @@ elif page == "📋 Realized PnL table":
 
     current_year = pd.Timestamp.today().year
 
-    filter_col1, filter_col2 = st.columns([1.2, 1.8])
+    # centered page layout
+    outer_left, center_col, outer_right = st.columns([1, 3, 1])
 
-    with filter_col1:
+    with center_col:
         year_options = sorted(df["year"].dropna().astype(int).unique().tolist()) if "year" in df.columns else []
         default_years = [current_year] if current_year in year_options else ([year_options[-1]] if year_options else [])
+
         selected_years = st.multiselect(
             "Year",
             options=year_options,
@@ -2099,7 +2137,6 @@ elif page == "📋 Realized PnL table":
             key="pnl_table_years"
         )
 
-    with filter_col2:
         ticker_options = sorted(df["ticker"].dropna().astype(str).unique().tolist()) if "ticker" in df.columns else []
         selected_tickers = st.multiselect(
             "Ticker",
@@ -2107,30 +2144,31 @@ elif page == "📋 Realized PnL table":
             key="pnl_table_tickers"
         )
 
-    df_f = df.copy()
+        df_f = df.copy()
 
-    if selected_years and "year" in df_f.columns:
-        df_f = df_f[df_f["year"].isin(selected_years)]
+        if selected_years and "year" in df_f.columns:
+            df_f = df_f[df_f["year"].isin(selected_years)]
 
-    if selected_tickers and "ticker" in df_f.columns:
-        df_f = df_f[df_f["ticker"].isin(selected_tickers)]
+        if selected_tickers and "ticker" in df_f.columns:
+            df_f = df_f[df_f["ticker"].isin(selected_tickers)]
 
-    if df_f.empty:
-        st.info("No data for selected filters.")
-        st.stop()
+        if df_f.empty:
+            st.info("No data for selected filters.")
+            st.stop()
 
-    year_table = build_realized_pnl_summary(df_f, "year", "Year")
-    month_table = build_realized_pnl_summary(df_f, "month", "Month")
+        year_table = build_realized_pnl_summary(
+            df_f, "year", "Year", gross_net=gross_net_mode
+        )
+        month_table = build_realized_pnl_summary(
+            df_f, "month", "Month", gross_net=gross_net_mode
+        )
 
-    if not year_table.empty:
-        year_table = year_table.sort_values("Year", ascending=False)
+        if not year_table.empty:
+            year_table = year_table.sort_values("Year", ascending=False)
 
-    if not month_table.empty:
-        month_table = month_table.sort_values("Month", ascending=False)
+        if not month_table.empty:
+            month_table = month_table.sort_values("Month", ascending=False)
 
-    left_col, right_col = st.columns(2)
-
-    with left_col:
         st.subheader("By Year")
         st.dataframe(
             year_table,
@@ -2146,7 +2184,8 @@ elif page == "📋 Realized PnL table":
             }
         )
 
-    with right_col:
+        st.markdown("###")
+
         st.subheader("By Month")
         st.dataframe(
             month_table,
