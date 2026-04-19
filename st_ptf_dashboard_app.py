@@ -87,6 +87,7 @@ page = st.sidebar.radio(
      "Open stock positions",
      "📒 Closed positions / realized PnL (FIFO, USD)",
      "📊 Realized PnL Analysis (FIFO, USD)",
+     "📋 Realized PnL table",
      "📈 Return Distribution",
      "Option ROI Calculator",
      "💸 Deposits & Withdrawals",
@@ -257,6 +258,89 @@ def build_return_buckets(series: pd.Series, metric_kind: str) -> pd.Categorical:
         ]
 
     return pd.cut(s, bins=bins, labels=labels, include_lowest=True, right=False)
+
+def prepare_realized_pnl_table_df(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    df.columns = [c.lower() for c in df.columns]
+
+    if "close_date" in df.columns:
+        df["close_date_dt"] = pd.to_datetime(
+            df["close_date"].astype(str), format="%Y%m%d", errors="coerce"
+        )
+        df["year"] = df["close_date_dt"].dt.year
+        df["month"] = df["close_date_dt"].dt.to_period("M").astype(str)
+
+    for col in ["realized_usd", "holding_days"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    df["realized_usd"] = df.get("realized_usd", 0).fillna(0)
+    df["holding_days"] = df.get("holding_days", 0).fillna(0)
+
+    df["asset_class"] = df.get("asset_class", "").astype(str).str.upper().str.strip()
+
+    # Time test applies only to STK
+    df["over_1_year_value"] = np.where(
+        (df["asset_class"] == "STK") & (df["holding_days"] > 365),
+        df["realized_usd"],
+        0.0
+    )
+
+    df["up_to_1_year_value"] = np.where(
+        (df["asset_class"] == "STK") & (df["holding_days"] > 365),
+        0.0,
+        df["realized_usd"]
+    )
+
+    return df
+
+
+def build_realized_pnl_summary(df: pd.DataFrame, period_col: str, period_label: str) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame(columns=[
+            period_label, "STK", "OPT", "Total P/L", "Over 1 year", "Up to 1 year"
+        ])
+
+    base = (
+        df.groupby([period_col, "asset_class"], as_index=False)["realized_usd"]
+          .sum()
+    )
+
+    pivot = (
+        base.pivot(index=period_col, columns="asset_class", values="realized_usd")
+            .fillna(0)
+            .reset_index()
+    )
+
+    if "STK" not in pivot.columns:
+        pivot["STK"] = 0.0
+    if "OPT" not in pivot.columns:
+        pivot["OPT"] = 0.0
+
+    over_df = (
+        df.groupby(period_col, as_index=False)["over_1_year_value"]
+          .sum()
+          .rename(columns={"over_1_year_value": "Over 1 year"})
+    )
+
+    upto_df = (
+        df.groupby(period_col, as_index=False)["up_to_1_year_value"]
+          .sum()
+          .rename(columns={"up_to_1_year_value": "Up to 1 year"})
+    )
+
+    out = pivot.merge(over_df, on=period_col, how="left").merge(upto_df, on=period_col, how="left")
+
+    out["STK"] = pd.to_numeric(out["STK"], errors="coerce").fillna(0)
+    out["OPT"] = pd.to_numeric(out["OPT"], errors="coerce").fillna(0)
+    out["Over 1 year"] = pd.to_numeric(out["Over 1 year"], errors="coerce").fillna(0)
+    out["Up to 1 year"] = pd.to_numeric(out["Up to 1 year"], errors="coerce").fillna(0)
+
+    out["Total P/L"] = out["STK"] + out["OPT"]
+
+    out = out.rename(columns={period_col: period_label})
+
+    return out[[period_label, "STK", "OPT", "Total P/L", "Over 1 year", "Up to 1 year"]]
 
 # --- Basic cleanup for dividends
 if not df_divi.empty:
@@ -1975,7 +2059,108 @@ elif page == "📈 Return Distribution":
             "net_realized_usd": st.column_config.NumberColumn("Net realized USD", format="%.2f"),
         }
     )
+elif page == "📋 Realized PnL table":
+    st.header("Realized PnL table")
 
+    assignment_mode = st.radio(
+        "Option assignment",
+        ["No", "Yes"],
+        horizontal=True,
+        key="pnl_table_assignment_mode"
+    )
+
+    selected_view = (
+        VIEW_REALIZED_FIFO_USD_ASSIGNMENT
+        if assignment_mode == "Yes"
+        else VIEW_REALIZED_FIFO_USD
+    )
+
+    st.caption(f"Option assignment: {assignment_mode}")
+
+    df_rlz = load_realized(selected_view)
+
+    if df_rlz.empty:
+        st.info("No realized data available.")
+        st.stop()
+
+    df = prepare_realized_pnl_table_df(df_rlz)
+
+    current_year = pd.Timestamp.today().year
+
+    filter_col1, filter_col2 = st.columns([1.2, 1.8])
+
+    with filter_col1:
+        year_options = sorted(df["year"].dropna().astype(int).unique().tolist()) if "year" in df.columns else []
+        default_years = [current_year] if current_year in year_options else ([year_options[-1]] if year_options else [])
+        selected_years = st.multiselect(
+            "Year",
+            options=year_options,
+            default=default_years,
+            key="pnl_table_years"
+        )
+
+    with filter_col2:
+        ticker_options = sorted(df["ticker"].dropna().astype(str).unique().tolist()) if "ticker" in df.columns else []
+        selected_tickers = st.multiselect(
+            "Ticker",
+            options=ticker_options,
+            key="pnl_table_tickers"
+        )
+
+    df_f = df.copy()
+
+    if selected_years and "year" in df_f.columns:
+        df_f = df_f[df_f["year"].isin(selected_years)]
+
+    if selected_tickers and "ticker" in df_f.columns:
+        df_f = df_f[df_f["ticker"].isin(selected_tickers)]
+
+    if df_f.empty:
+        st.info("No data for selected filters.")
+        st.stop()
+
+    year_table = build_realized_pnl_summary(df_f, "year", "Year")
+    month_table = build_realized_pnl_summary(df_f, "month", "Month")
+
+    if not year_table.empty:
+        year_table = year_table.sort_values("Year", ascending=False)
+
+    if not month_table.empty:
+        month_table = month_table.sort_values("Month", ascending=False)
+
+    left_col, right_col = st.columns(2)
+
+    with left_col:
+        st.subheader("By Year")
+        st.dataframe(
+            year_table,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Year": st.column_config.NumberColumn(format="%d"),
+                "STK": st.column_config.NumberColumn(format="%.2f"),
+                "OPT": st.column_config.NumberColumn(format="%.2f"),
+                "Total P/L": st.column_config.NumberColumn(format="%.2f"),
+                "Over 1 year": st.column_config.NumberColumn(format="%.2f"),
+                "Up to 1 year": st.column_config.NumberColumn(format="%.2f"),
+            }
+        )
+
+    with right_col:
+        st.subheader("By Month")
+        st.dataframe(
+            month_table,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Month": st.column_config.TextColumn(),
+                "STK": st.column_config.NumberColumn(format="%.2f"),
+                "OPT": st.column_config.NumberColumn(format="%.2f"),
+                "Total P/L": st.column_config.NumberColumn(format="%.2f"),
+                "Over 1 year": st.column_config.NumberColumn(format="%.2f"),
+                "Up to 1 year": st.column_config.NumberColumn(format="%.2f"),
+            }
+        )    
 # ========================= PAGE: Settings =========================
 else:
     st.header("Settings")
