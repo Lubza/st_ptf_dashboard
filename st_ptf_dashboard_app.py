@@ -76,12 +76,14 @@ def get_engine():
 
 engine = get_engine()
 
+
 # --- SIDEBAR
 st.sidebar.title("📂 Navigation")
 
 page = st.sidebar.radio(
     "Go to:",
-    ("📊 Dividends Overview",
+    ("📊 Portfolio Overview",
+     "📊 Dividends Overview",
      "📈 Transactions",
      "Open option positions",
      "Open stock positions",
@@ -118,6 +120,12 @@ def load_transactions() -> pd.DataFrame:
 @st.cache_data(ttl=600)
 def load_deposits_withdrawals() -> pd.DataFrame:
     df = pd.read_sql('SELECT * FROM ib_deposits_withdrawals', engine)
+    df.columns = [c.lower() for c in df.columns]
+    return df
+
+@st.cache_data(ttl=600)
+def load_snapshot() -> pd.DataFrame:
+    df = pd.read_sql("SELECT * FROM ib_portfolio_daily_snapshot ORDER BY snapshot_date ASC", engine)
     df.columns = [c.lower() for c in df.columns]
     return df
 
@@ -377,8 +385,136 @@ if not df_divi.empty:
     df_divi.replace([np.inf, -np.inf], np.nan, inplace=True)
     df_divi["amount"] = df_divi["amount"].fillna(0)
 
+###
+# --- PAGE: Portfolio Overview
+if page == "📊 Portfolio Overview":
+
+    st.title("Portfolio Overview")
+
+    df_snap = load_snapshot()
+
+    if df_snap.empty:
+        st.warning("No portfolio snapshot data yet.")
+        st.stop()
+
+    df_snap["snapshot_date"] = pd.to_datetime(df_snap["snapshot_date"])
+
+    latest = df_snap.iloc[-1]
+
+    # =========================
+    # KPI CALCULATIONS
+    # =========================
+
+    cash = latest.get("cash_total_base_usd", 0)
+    stock = latest.get("stock_market_value_usd", 0)
+    short_put = latest.get("short_put_exposure_usd", 0)
+    sold_call = latest.get("sold_call_exposure_usd", 0)
+
+    total_risk = stock + short_put
+    free_cash = cash - short_put
+
+    invested_ratio = latest.get("invested_ratio", 0)
+    risk_ratio = latest.get("risk_exposure_ratio", 0)
+
+    # =========================
+    # KPI ROW
+    # =========================
+
+    c1, c2, c3 = st.columns(3)
+
+    with c1:
+        st.metric("Cash Balance", f"${cash:,.0f}")
+
+    with c2:
+        st.metric("Risk Exposure", f"${total_risk:,.0f}")
+
+    with c3:
+        st.metric("Free Cash (after puts)", f"${free_cash:,.0f}")
+
+    st.markdown("---")
+
+    # =========================
+    # CHARTS
+    # =========================
+
+    left, right = st.columns(2)
+
+    # ----- Exposure ratios -----
+    with left:
+        st.subheader("Exposure Ratios")
+
+        chart_df = df_snap.copy()
+
+        chart_df["invested_pct"] = chart_df["invested_ratio"] * 100
+        chart_df["risk_pct"] = chart_df["risk_exposure_ratio"] * 100
+
+        chart = alt.Chart(chart_df).transform_fold(
+            ["invested_pct", "risk_pct"],
+            as_=["metric", "value"]
+        ).mark_line().encode(
+            x="snapshot_date:T",
+            y="value:Q",
+            color=alt.Color("metric:N", scale=alt.Scale(
+                domain=["invested_pct", "risk_pct"],
+                range=["#22c55e", "#ef4444"]
+            )),
+            tooltip=["snapshot_date", "value"]
+        )
+
+        st.altair_chart(chart, use_container_width=True)
+
+    # ----- Cash chart -----
+    with right:
+        st.subheader("Total Cash (USD)")
+
+        chart = alt.Chart(df_snap).mark_bar().encode(
+            x="snapshot_date:T",
+            y="cash_total_base_usd:Q",
+            tooltip=["snapshot_date", "cash_total_base_usd"]
+        )
+
+        st.altair_chart(chart, use_container_width=True)
+
+    st.markdown("---")
+
+    # =========================
+    # LOWER CARDS
+    # =========================
+
+    l1, l2, l3 = st.columns(3)
+
+    # ----- PnL (simple version) -----
+    with l1:
+        st.subheader("Performance")
+
+        st.metric("Portfolio value",
+                  f"${(cash + stock):,.0f}")
+
+    # ----- Allocation -----
+    with l2:
+        st.subheader("Allocation")
+
+        alloc_df = pd.DataFrame({
+            "type": ["Stocks", "Options", "Cash"],
+            "value": [stock, short_put + sold_call, cash]
+        })
+
+        pie = alt.Chart(alloc_df).mark_arc().encode(
+            theta="value:Q",
+            color="type:N"
+        )
+
+        st.altair_chart(pie, use_container_width=True)
+
+    # ----- Risk -----
+    with l3:
+        st.subheader("Risk")
+
+        st.metric("Risk ratio", f"{risk_ratio:.2f}")
+
+
 # --- PAGE: Dividends Overview
-if page == "📊 Dividends Overview":
+elif page == "📊 Dividends Overview":
     st.title("Dividends overview")
 
     # Always define columns (fixes Pylance: col2 not defined)
