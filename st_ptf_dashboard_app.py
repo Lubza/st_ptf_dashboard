@@ -449,17 +449,25 @@ if page == "📊 Portfolio Overview":
         chart_df["risk_pct"] = chart_df["risk_exposure_ratio"] * 100
 
         chart = alt.Chart(chart_df).transform_fold(
-            ["invested_pct", "risk_pct"],
-            as_=["metric", "value"]
-        ).mark_line().encode(
-            x="snapshot_date:T",
-            y="value:Q",
-            color=alt.Color("metric:N", scale=alt.Scale(
-                domain=["invested_pct", "risk_pct"],
-                range=["#22c55e", "#ef4444"]
-            )),
-            tooltip=["snapshot_date", "value"]
-        )
+                ["invested_pct", "risk_pct"],
+                as_=["metric", "value"]
+            ).mark_line(point=True).encode(
+                x=alt.X("snapshot_date:T", title="Date"),
+                y=alt.Y("value:Q", title="Ratio (%)"),
+                color=alt.Color(
+                    "metric:N",
+                    title="Metric",
+                    scale=alt.Scale(
+                        domain=["invested_pct", "risk_pct"],
+                        range=["#22c55e", "#ef4444"]
+                    )
+                ),
+                tooltip=[
+                    alt.Tooltip("snapshot_date:T", title="Date"),
+                    alt.Tooltip("metric:N", title="Metric"),
+                    alt.Tooltip("value:Q", title="Value (%)", format=".2f"),
+                ]
+            )
 
         st.altair_chart(chart, use_container_width=True)
 
