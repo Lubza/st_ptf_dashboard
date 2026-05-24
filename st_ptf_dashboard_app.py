@@ -125,7 +125,7 @@ def load_deposits_withdrawals() -> pd.DataFrame:
 
 @st.cache_data(ttl=600)
 def load_snapshot() -> pd.DataFrame:
-    df = pd.read_sql("SELECT * FROM ib_portfolio_daily_snapshot ORDER BY snapshot_date ASC", engine)
+    df = pd.read_sql("SELECT * FROM ib_portfolio_daily_snapshot ORDER BY as_of_date ASC", engine)
     df.columns = [c.lower() for c in df.columns]
     return df
 
@@ -397,7 +397,7 @@ if page == "📊 Portfolio Overview":
         st.warning("No portfolio snapshot data yet.")
         st.stop()
 
-    df_snap["snapshot_date"] = pd.to_datetime(df_snap["snapshot_date"])
+    df_snap["as_of_date"] = pd.to_datetime(df_snap["as_of_date"])
 
     latest = df_snap.iloc[-1]
 
@@ -452,7 +452,7 @@ if page == "📊 Portfolio Overview":
                 ["invested_pct", "risk_pct"],
                 as_=["metric", "value"]
             ).mark_line(point=True).encode(
-                x=alt.X("snapshot_date:T", title="Date"),
+                x=alt.X("as_of_date:T", title="Date"),
                 y=alt.Y("value:Q", title="Ratio (%)"),
                 color=alt.Color(
                     "metric:N",
@@ -463,7 +463,7 @@ if page == "📊 Portfolio Overview":
                     )
                 ),
                 tooltip=[
-                    alt.Tooltip("snapshot_date:T", title="Date"),
+                    alt.Tooltip("as_of_date:T", title="Date"),
                     alt.Tooltip("metric:N", title="Metric"),
                     alt.Tooltip("value:Q", title="Value (%)", format=".2f"),
                 ]
@@ -476,9 +476,9 @@ if page == "📊 Portfolio Overview":
         st.subheader("Total Cash (USD)")
 
         chart = alt.Chart(df_snap).mark_bar().encode(
-            x="snapshot_date:T",
+            x="as_of_date:T",
             y="cash_total_base_usd:Q",
-            tooltip=["snapshot_date", "cash_total_base_usd"]
+            tooltip=["as_of_date", "cash_total_base_usd"]
         )
 
         st.altair_chart(chart, use_container_width=True)
