@@ -379,6 +379,237 @@ def build_realized_pnl_summary(
 
     return out[[period_label, "STK", "OPT", "Total P/L", "Over 1 year", "Up to 1 year"]]
 
+# === OPEN OPTION POSITIONS: FIFO-based read-only calculations ===
+# These helpers use existing ib_transactions data; they do NOT change the DB.
+# IMPORTANT: default multiplier=100; adjusted/non-standard option contracts
+# require a multiplier field from IBKR for exact premiums and risk.
+from collections import defaultdict, deque
+
+
+def _opt_text(value):
+    if value is None or pd.isna(value):
+        return ""
+    return str(value).strip()
+
+
+def _opt_float(value):
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return float("nan")
+
+
+def _opt_expiry(value):
+    return pd.to_datetime(_opt_text(value).split(".")[0][:8], format="%Y%m%d", errors="coerce")
+
+
+def _opt_execution_cost(row, signed_qty, multiplier=100):
+    """Cash amount spent on the execution (+debit, -credit), fees included.
+
+    Use IBKR NetCash when present. Otherwise use Proceeds + commission;
+    trade-price calculation is a final fallback only.
+    """
+    cash = _opt_float(row.get("netcash"))
+    if pd.notna(cash):
+        return -cash
+    proceeds = _opt_float(row.get("proceeds"))
+    fee = _opt_float(row.get("ibcommission"))
+    fee = fee if pd.notna(fee) else 0.0
+    if pd.notna(proceeds):
+        return -(proceeds + fee)
+    price = _opt_float(row.get("tradeprice"))
+    if pd.isna(price):
+        raise ValueError("Missing NetCash, Proceeds and TradePrice for an option trade")
+    return price * signed_qty * multiplier - fee
+
+
+def _opt_make_single(meta, qty, open_cost, as_of, multiplier=100):
+    dte = max(0, int((meta["expiry_dt"] - as_of).days)) if pd.notna(meta["expiry_dt"]) else 0
+    is_long = qty > 0
+    is_short_put = qty < 0 and meta["option_code"] == "P"
+    return {
+        **meta,
+        "position_type": "Single option",
+        "strategy": "Single option",
+        "buy/sell": "BUY" if is_long else "SELL",
+        "put/call": {"P": "Put", "C": "Call"}.get(meta["option_code"], meta["option_code"]),
+        "quantity": qty,
+        "opening_cost": open_cost,
+        "cost_per_spread": float("nan"),
+        "max_loss": float("nan"),
+        "max_profit": float("nan"),
+        "long_strike": float("nan"),
+        "short_strike": float("nan"),
+        "capital blocked": -qty * meta["strike"] * multiplier if is_short_put else 0.0,
+        "DTE": dte,
+    }
+
+
+def _opt_fifo_open_legs(transactions, as_of=None):
+    """Reconstruct remaining FIFO opening lots per exact option contract.
+
+    Do not drop rows based on Trade_id: the import's hash can be shared by
+    different executions with different commissions.
+    """
+    as_of = pd.Timestamp.today().normalize() if as_of is None else pd.Timestamp(as_of).normalize()
+    if transactions.empty:
+        return pd.DataFrame(), []
+    tx = transactions.copy()
+    tx.columns = [str(col).lower() for col in tx.columns]
+    tx = tx[tx["assetclass"].astype(str).str.upper().str.strip().eq("OPT")].copy()
+    tx["_source_order"] = range(len(tx))
+    tx["_trade_date"] = pd.to_datetime(tx["tradedate"].astype(str).str[:8], format="%Y%m%d", errors="coerce")
+    # Source order is only a fallback on same-day trades: for exact intraday
+    # FIFO, IBKR execution timestamp would be required.
+    tx = tx.sort_values(["_trade_date", "_source_order"], kind="stable")
+
+    contracts = {}
+    warnings = []
+    for _, row in tx.iterrows():
+        side = _opt_text(row.get("buy/sell")).upper()
+        qty = _opt_float(row.get("quantity"))
+        if side not in ("BUY", "SELL") or pd.isna(qty) or abs(qty) < 1e-9:
+            continue
+        amount = abs(qty)
+        signed_qty = amount if side == "BUY" else -amount
+        strike = _opt_float(row.get("strike"))
+        expiry_dt = _opt_expiry(row.get("expiry"))
+        kind = _opt_text(row.get("put/call")).upper()
+        symbol = _opt_text(row.get("symbol")).upper()
+        underlying = _opt_text(row.get("underlyingsymbol")).upper()
+        currency = _opt_text(row.get("currencyprimary", row.get("currency"))).upper()
+        multiplier = _opt_float(row.get("multiplier"))
+        if pd.isna(multiplier) or multiplier <= 0:
+            multiplier = 100.0
+        root = symbol.split()[0] if symbol else underlying
+        underlying = underlying or root
+        contract_id = (symbol or _opt_text(row.get("description")).upper(),
+                       expiry_dt, kind, strike, currency, multiplier)
+        if contract_id not in contracts:
+            contracts[contract_id] = {
+                "long": deque(), "short": deque(),
+                "meta": {
+                    "symbol": symbol,
+                    "underlyingsymbol": underlying,
+                    "root": root,
+                    "description": _opt_text(row.get("description")),
+                    "expiry_dt": expiry_dt,
+                    "option_code": kind,
+                    "strike": strike,
+                    "currencyprimary": currency,
+                    "multiplier": multiplier,
+                },
+            }
+        contract = contracts[contract_id]
+        opposite = contract["short"] if side == "BUY" else contract["long"]
+        opening = contract["long"] if side == "BUY" else contract["short"]
+        remaining = amount
+        while remaining > 1e-9 and opposite:
+            lot = opposite[0]
+            matched = min(remaining, lot["qty"])
+            lot["qty"] -= matched
+            remaining -= matched
+            if lot["qty"] < 1e-9:
+                opposite.popleft()
+        if remaining > 1e-9:
+            # Only the opening portion contributes to open-lot cost basis.
+            total_cost = _opt_execution_cost(row, signed_qty, multiplier)
+            opening.append({"qty": remaining, "unit_cost": total_cost / amount})
+
+    legs = []
+    for item in contracts.values():
+        meta = item["meta"]
+        for name, sign in (("long", 1), ("short", -1)):
+            lots = item[name]
+            if not lots:
+                continue
+            qty = sum(lot["qty"] for lot in lots)
+            open_cost = sum(lot["qty"] * lot["unit_cost"] for lot in lots)
+            leg = _opt_make_single(meta, sign * qty, open_cost, as_of, meta["multiplier"])
+            legs.append(leg)
+    return pd.DataFrame(legs), warnings
+
+
+def _opt_group_spreads(open_legs):
+    """Conservatively combine unambiguous two-leg vertical spreads.
+
+    For more complicated option structures we leave separate legs visible,
+    rather than incorrectly matching a calendar/butterfly/ratio spread.
+    """
+    if open_legs.empty:
+        return open_legs.copy()
+    grouped = defaultdict(list)
+    for i, row in open_legs.iterrows():
+        group_key = (row["underlyingsymbol"], row["root"], row["expiry_dt"],
+                     row["option_code"], row["currencyprimary"], row["multiplier"])
+        grouped[group_key].append(i)
+
+    combined = []
+    used = set()
+    for ids in grouped.values():
+        long_ids = [i for i in ids if open_legs.loc[i, "quantity"] > 0]
+        short_ids = [i for i in ids if open_legs.loc[i, "quantity"] < 0]
+        if len(long_ids) != 1 or len(short_ids) != 1:
+            continue
+        li, si = long_ids[0], short_ids[0]
+        long = open_legs.loc[li]
+        short = open_legs.loc[si]
+        if (pd.isna(long["strike"]) or pd.isna(short["strike"]) or
+                long["strike"] == short["strike"]):
+            continue
+        n = min(float(long["quantity"]), -float(short["quantity"]))
+        if n < 1e-9:
+            continue
+        lc = float(long["opening_cost"]) / float(long["quantity"])
+        sc = float(short["opening_cost"]) / -float(short["quantity"])
+        cost_per_spread = lc + sc
+        cost = n * cost_per_spread
+        width = abs(float(long["strike"]) - float(short["strike"])) * float(long["multiplier"]) * n
+        if long["option_code"] == "P":
+            strategy = "Bear Put Debit Spread" if long["strike"] > short["strike"] else "Bull Put Credit Spread"
+            intrinsic_low = (float(long["strike"]) - float(short["strike"])) * float(long["multiplier"]) * n
+            intrinsic_high = 0.0
+        else:
+            strategy = "Bull Call Debit Spread" if long["strike"] < short["strike"] else "Bear Call Credit Spread"
+            intrinsic_low = 0.0
+            intrinsic_high = (float(short["strike"]) - float(long["strike"])) * float(long["multiplier"]) * n
+        pnl_low, pnl_high = intrinsic_low - cost, intrinsic_high - cost
+        max_loss = max(0.0, -min(pnl_low, pnl_high))
+        max_profit = max(pnl_low, pnl_high)
+        exp_label = long["expiry_dt"].strftime("%d%b%y").upper() if pd.notna(long["expiry_dt"]) else "UNKNOWN"
+        combo = long.to_dict()
+        combo.update({
+            "description": f'{long["root"]} {exp_label} {long["strike"]:g}/{short["strike"]:g} {long["option_code"]}',
+            "position_type": "Vertical spread",
+            "strategy": strategy,
+            "buy/sell": "SPREAD",
+            "quantity": n,
+            "strike": float("nan"),
+            "opening_cost": cost,
+            "cost_per_spread": cost_per_spread,
+            "max_loss": max_loss,
+            "max_profit": max_profit,
+            "long_strike": long["strike"],
+            "short_strike": short["strike"],
+            "capital blocked": 0.0,  # not a naked put; the max risk is shown separately
+        })
+        combined.append(combo)
+        used.update((li, si))
+        # If 20 long vs 18 short, show 18 spreads AND 2 uncovered long puts.
+        for leg in (long, short):
+            orig_qty = abs(float(leg["quantity"]))
+            leftover = orig_qty - n
+            if leftover > 1e-9:
+                residual = leg.to_dict()
+                residual["quantity"] = leftover if leg["quantity"] > 0 else -leftover
+                residual["opening_cost"] = float(leg["opening_cost"]) * leftover / orig_qty
+                if residual["quantity"] < 0 and residual["option_code"] == "P":
+                    residual["capital blocked"] = leftover * float(leg["strike"]) * float(leg["multiplier"])
+                combined.append(residual)
+    combined.extend(open_legs.loc[i].to_dict() for i in open_legs.index if i not in used)
+    return pd.DataFrame(combined)
+
+
 # --- Basic cleanup for dividends
 if not df_divi.empty:
     df_divi["amount"] = pd.to_numeric(df_divi.get("amount", 0), errors="coerce")
@@ -881,403 +1112,185 @@ elif page == "📒 Closed positions / realized PnL (FIFO, USD)":
 # ========================= PAGE: Open option positions =========================
 elif page == "Open option positions":
     st.header("Open option positions")
+    st.caption("FIFO open-lot positions, including entry commissions. Read-only: no database records are changed.")
 
     if df_tx.empty:
         st.warning("No transactions in the table.")
     else:
-        required = {"assetclass", "description", "quantity"}
+        required = {"assetclass", "symbol", "quantity", "buy/sell", "tradedate", "expiry", "strike", "put/call"}
         missing = required - set(df_tx.columns)
         if missing:
             st.error(f"Missing columns in transactions table: {', '.join(sorted(missing))}")
         else:
-            df_opt = df_tx.copy()
-
-            # Keep only options
-            df_opt["assetclass"] = df_opt["assetclass"].astype(str).str.upper().str.strip()
-            df_opt = df_opt[df_opt["assetclass"] == "OPT"]
-
-            # Normalize numeric columns
-            for col in ["quantity", "tradeprice", "strike"]:
-                if col in df_opt.columns:
-                    df_opt[col] = pd.to_numeric(df_opt[col], errors="coerce").fillna(0.0)
-
-            # Normalize side/type
-            if "buy/sell" in df_opt.columns:
-                df_opt["buy/sell"] = df_opt["buy/sell"].astype(str).str.upper().str.strip()
-            if "put/call" in df_opt.columns:
-                df_opt["put/call"] = df_opt["put/call"].astype(str).str.upper().str.strip()
-
-            # --- Normalize currency column & detect its name
-            # We support either `currencyprimary` or `currency`
-            CUR_COL = "currencyprimary" if "currencyprimary" in df_opt.columns else ("currency" if "currency" in df_opt.columns else None)
-            if CUR_COL is not None:
-                df_opt[CUR_COL] = df_opt[CUR_COL].astype(str).str.upper().str.strip()
-
-            # Net filter: keep descriptions with non-zero net quantity
-            net_by_desc = (
-                df_opt.groupby("description", as_index=False)["quantity"]
-                .sum()
-                .rename(columns={"quantity": "net_quantity"})
-            )
-            df_opt = df_opt.merge(net_by_desc, on="description", how="left")
-            df_opt = df_opt[df_opt["net_quantity"].round(8) != 0]
-
-            #
-        
-            # Premiums
-            df_opt["premium"] = (df_opt["tradeprice"] * df_opt["quantity"] * 100).round(2)
-            df_opt["unearned_premium"] = (-df_opt["premium"]).round(2)
-
-            # Expiry -> DTE
-            def to_date_yyyymmdd(x):
-                if pd.isna(x):
-                    return pd.NaT
-                s = str(x).strip().split(".")[0]
-                s = s[:8]
-                return pd.to_datetime(s, format="%Y%m%d", errors="coerce")
-
-            if "expiry" in df_opt.columns:
-                df_opt["expiry_dt"] = df_opt["expiry"].apply(to_date_yyyymmdd)
-                today = pd.Timestamp.today().normalize()
-                df_opt["DTE"] = (df_opt["expiry_dt"] - today).dt.days
-                df_opt["DTE"] = df_opt["DTE"].fillna(0).clip(lower=0).astype(int)
+            df_options_raw = df_tx[df_tx["assetclass"].astype(str).str.upper().str.strip().eq("OPT")].copy()
+            if df_options_raw.empty:
+                st.info("No option transactions found.")
             else:
-                df_opt["expiry_dt"] = pd.NaT
-                df_opt["DTE"] = None
-
-            # Capital blocked (signed)
-            df_opt["capital blocked"] = (df_opt["strike"] * df_opt["quantity"] * 100).round(2)
-
-            df_opt = df_opt[df_opt["quantity"].round(8) != 0].copy()
-
-            # Put/Call labels
-            if "put/call" in df_opt.columns:
-                df_opt["put/call"] = df_opt["put/call"].map({"C": "Call", "P": "Put"}).fillna(df_opt["put/call"])
-
-            # ------------------------------------------------------------
-            # AGGREGATE OPEN OPTION POSITIONS
-            # merge multiple fills of the same contract into 1 row
-            # ------------------------------------------------------------
-            group_cols = ["description", "buy/sell", "put/call", "strike", "expiry_dt"]
-            if CUR_COL is not None:
-                group_cols.append(CUR_COL)
-
-            df_opt = (
-                df_opt.groupby(group_cols, dropna=False, as_index=False)
-                    .agg(
-                        quantity=("quantity", "sum"),
-                        tradeprice=("tradeprice", "mean"),          # optional: len pre info
-                        premium=("premium", "sum"),
-                        unearned_premium=("unearned_premium", "sum"),
-                        DTE=("DTE", "min"),
+                under_col = "underlyingsymbol" if "underlyingsymbol" in df_options_raw.columns else "symbol"
+                all_underlyings = sorted(df_options_raw[under_col].dropna().astype(str).str.upper().str.strip().unique().tolist())
+                filt1, filt2 = st.columns([1.2, 1.8])
+                with filt1:
+                    selected_under = st.selectbox("Underlying", ["All"] + all_underlyings, key="openopts_under")
+                with filt2:
+                    display_mode = st.radio(
+                        "Display", ["Strategies (combined spreads)", "Individual option contracts"],
+                        horizontal=True, key="openopts_mode",
                     )
-            )
+                if selected_under != "All":
+                    df_options_raw = df_options_raw[
+                        df_options_raw[under_col].astype(str).str.upper().str.strip().eq(selected_under)
+                    ].copy()
 
-            # keep only truly open positions
-            df_opt = df_opt[df_opt["quantity"].round(8) != 0].copy()
+                df_legs, _lot_warnings = _opt_fifo_open_legs(df_options_raw)
+                df_strategies = _opt_group_spreads(df_legs)
+                df_display = df_strategies if display_mode.startswith("Strategies") else df_legs
+                df_display = df_display.copy()
 
-            # recompute capital blocked on contract level (clean & consistent)
-            df_opt["capital blocked"] = (df_opt["strike"] * df_opt["quantity"] * 100).round(2)
-
-            # nice ordering
-            sort_cols = [c for c in ["DTE", "description", "strike"] if c in df_opt.columns]
-            if sort_cols:
-                df_opt = df_opt.sort_values(sort_cols, ascending=True)
-
-            # --------- Two-column layout
-            left, right = st.columns([2.6, 1.4])
-
-            # ===================== LEFT SIDE =====================
-            with left:
-                display_cols = [
-                    "description","put/call","quantity","strike","premium","unearned_premium",
-                    "DTE","capital blocked"
-                ]
-                if CUR_COL is not None:
-                    display_cols.append(CUR_COL)
-                display_cols = [c for c in display_cols if c in df_opt.columns]
-
-                # Sort by expiry (DTE) then by description
-                sort_cols = [c for c in ["DTE", "description"] if c in df_opt.columns]
-                if sort_cols:
-                    df_opt = df_opt.sort_values(sort_cols, ascending=[True, True] if len(sort_cols) == 2 else True)
-
-                st.subheader("Positions")
-                col_config = {
-                    "description":        st.column_config.TextColumn("description"),
-                    "put/call":           st.column_config.TextColumn("put/call"),
-                    "quantity":           st.column_config.NumberColumn("quantity", format="%.2f"),
-                    "strike":             st.column_config.NumberColumn("strike", format="%.2f"),
-                    "premium":            st.column_config.NumberColumn("premium", format="%.2f"),
-                    "unearned_premium":   st.column_config.NumberColumn("unearned premium", format="%.2f"),
-                    "DTE":                st.column_config.NumberColumn("DTE", format="%d"),
-                    "capital blocked":    st.column_config.NumberColumn("capital blocked", format="%.2f"),
-                }
-                if CUR_COL is not None:
-                    col_config[CUR_COL] = st.column_config.TextColumn("currency")
-
-                st.dataframe(
-                    df_opt[display_cols],
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config=col_config,
-                )
-
-                # ======== VISUALS ========
-                st.markdown("### Visuals")
-
-                # --- Currency filter (affects all visuals below)
-                cur_options = sorted(df_opt.get(CUR_COL, pd.Series(dtype=str)).dropna().unique().tolist()) if CUR_COL else []
-                selected_curs = st.multiselect(
-                    "Filter by currency (affects pies and charts below):",
-                    options=cur_options,
-                    default=cur_options if cur_options else None,
-                    key="cur_filter_openopts"
-                )
-
-                if selected_curs and CUR_COL:
-                    df_vis = df_opt[df_opt[CUR_COL].isin(selected_curs)].copy()
+                if df_display.empty:
+                    st.success("No open option positions for this selection.")
                 else:
-                    df_vis = df_opt.copy()
+                    numeric_cols = ["quantity", "strike", "long_strike", "short_strike",
+                                    "opening_cost", "cost_per_spread", "max_loss", "max_profit", "capital blocked"]
+                    for col in numeric_cols:
+                        df_display[col] = pd.to_numeric(df_display[col], errors="coerce")
+                    df_display = df_display.sort_values(["DTE", "underlyingsymbol", "description"], kind="stable")
 
-                # Short puts subset (for capital blocked)
-                df_sp_vis = df_vis[(df_vis.get("buy/sell") == "SELL") & (df_vis.get("put/call") == "Put")].copy()
+                    spread_rows = df_strategies[df_strategies["position_type"].eq("Vertical spread")]
+                    unpaired_short_puts = df_strategies[
+                        df_strategies["position_type"].eq("Single option") &
+                        df_strategies["buy/sell"].eq("SELL") &
+                        df_strategies["put/call"].eq("Put")
+                    ]
+                    n_spreads = spread_rows["quantity"].sum() if not spread_rows.empty else 0.0
+                    at_risk = spread_rows["max_loss"].sum() if not spread_rows.empty else 0.0
+                    naked_put_exposure = unpaired_short_puts["capital blocked"].sum() if not unpaired_short_puts.empty else 0.0
 
-                # --- Aggregations for pies
-                if CUR_COL:
-                    up_by_cc = (
-                        df_vis.groupby(CUR_COL, dropna=False)["unearned_premium"]
-                              .sum().reset_index().rename(columns={CUR_COL: "currency", "unearned_premium": "up_sum"})
+                    currencies = sorted(df_strategies["currencyprimary"].dropna().unique().tolist())
+                    single_currency = len(currencies) == 1
+                    money_suffix = f" {currencies[0]}" if single_currency else ""
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric("Vertical spread contracts", f"{n_spreads:,.0f}")
+                    m2.metric("Max loss on spreads (expiry)", f"{at_risk:,.2f}{money_suffix}" if single_currency else "See currency breakdown")
+                    m3.metric("Standalone short-put notional", f"{naked_put_exposure:,.2f}{money_suffix}" if single_currency else "See currency breakdown")
+                    if not single_currency:
+                        risk_by_cc = df_strategies.copy()
+                        risk_by_cc["spread_loss"] = risk_by_cc["max_loss"].fillna(0).where(
+                            risk_by_cc["position_type"].eq("Vertical spread"), 0.0)
+                        risk_by_cc["short_put_notional"] = risk_by_cc["capital blocked"].fillna(0).where(
+                            risk_by_cc["position_type"].eq("Single option") &
+                            risk_by_cc["buy/sell"].eq("SELL") &
+                            risk_by_cc["put/call"].eq("Put"), 0.0)
+                        risk_by_cc = (risk_by_cc.groupby("currencyprimary", as_index=False)
+                                      .agg(spread_max_loss=("spread_loss", "sum"),
+                                           standalone_short_put_notional=("short_put_notional", "sum")))
+                        st.dataframe(risk_by_cc, hide_index=True, use_container_width=True)
+                    st.caption("Monetary values are shown in original contract currencies (no FX conversion). "
+                               "Spread max loss is calculated at expiration; short-put notional is NOT broker margin.")
+
+                    show_cols = ["description", "strategy", "quantity", "strike", "long_strike",
+                                 "short_strike", "opening_cost", "cost_per_spread", "max_loss",
+                                 "max_profit", "DTE", "currencyprimary"]
+                    show_cols = [c for c in show_cols if c in df_display.columns]
+                    st.subheader("Positions")
+                    st.dataframe(
+                        df_display[show_cols], hide_index=True, use_container_width=True,
+                        column_config={
+                            "description": st.column_config.TextColumn("Contract / spread"),
+                            "strategy": st.column_config.TextColumn("Strategy"),
+                            "quantity": st.column_config.NumberColumn("Quantity", format="%.2f"),
+                            "strike": st.column_config.NumberColumn("Single strike", format="%.2f"),
+                            "long_strike": st.column_config.NumberColumn("Long strike", format="%.2f"),
+                            "short_strike": st.column_config.NumberColumn("Short strike", format="%.2f"),
+                            "opening_cost": st.column_config.NumberColumn("Net entry cost (+debit)", format="%.2f"),
+                            "cost_per_spread": st.column_config.NumberColumn("Cost per spread", format="%.2f"),
+                            "max_loss": st.column_config.NumberColumn("Max loss at expiry", format="%.2f"),
+                            "max_profit": st.column_config.NumberColumn("Max profit at expiry", format="%.2f"),
+                            "DTE": st.column_config.NumberColumn("DTE", format="%d"),
+                            "currencyprimary": st.column_config.TextColumn("Currency"),
+                        },
                     )
-                    cb_by_cc = (
-                        df_sp_vis.groupby(CUR_COL, dropna=False)["capital blocked"]
-                                 .apply(lambda s: s.abs().sum()).reset_index()
-                                 .rename(columns={CUR_COL: "currency", "capital blocked": "cb_sum"})
-                    )
-                else:
-                    # Fallback if no currency column exists
-                    up_by_cc = pd.DataFrame({"currency": ["N/A"], "up_sum": [df_vis["unearned_premium"].sum()]})
-                    cb_by_cc = pd.DataFrame({"currency": ["N/A"], "cb_sum": [df_sp_vis["capital blocked"].abs().sum()]})
+                    st.caption("Net entry cost: positive = premium paid, negative = premium received; includes entry commissions. "
+                               "Closed-lot premiums and closing commissions are excluded. "
+                               "Max profit/loss are theoretical expiry payoffs, excluding future fees or assignment effects.")
 
-                # --- Percent shares by EXPIRY: share of total unearned premium (within selected currencies)
-                exp_agg = (
-                    df_vis.groupby("expiry_dt", dropna=False)["unearned_premium"]
-                          .sum().rename("up_sum").reset_index()
-                )
-                exp_agg = exp_agg.sort_values("expiry_dt")
-                exp_agg["expiry_str"] = exp_agg["expiry_dt"].dt.strftime("%Y-%m-%d").fillna("N/A")
-                total_up_exp = exp_agg["up_sum"].sum()
-                exp_agg["share_pct"] = np.where(total_up_exp > 0, exp_agg["up_sum"] / total_up_exp * 100, np.nan)
-
-                # --- Percent shares by TICKER: share of total unearned premium (within selected currencies)
-                if "underlyingsymbol" in df_vis.columns and df_vis["underlyingsymbol"].notna().any():
-                    tick_col = "underlyingsymbol"
-                else:
-                    tick_col = "ticker_fallback"
-                    df_vis[tick_col] = df_vis["description"].astype(str).str.split().str[0]
-
-                tic_agg = (
-                    df_vis.groupby(tick_col, dropna=False)["unearned_premium"]
-                          .sum().rename("up_sum").reset_index()
-                          .rename(columns={tick_col: "ticker"})
-                          .sort_values("ticker")
-                )
-                total_up_tic = tic_agg["up_sum"].sum()
-                tic_agg["share_pct"] = np.where(total_up_tic > 0, tic_agg["up_sum"] / total_up_tic * 100, np.nan)
-
-                # --- Row 1: smaller pies (blue & light purple)
-                c1, c2 = st.columns(2)
-
-                with c1:
-                    st.subheader("Unearned premium by currency")
-                    pie1 = (
-                        alt.Chart(up_by_cc)
-                        .mark_arc(innerRadius=60)
-                        .encode(
-                            theta=alt.Theta("up_sum:Q", title="Unearned premium"),
-                            color=alt.Color("currency:N", scale=alt.Scale(scheme="blues"), legend=None),
-                            tooltip=[alt.Tooltip("currency:N"), alt.Tooltip("up_sum:Q", format=",.2f")]
+                    st.subheader("Visuals")
+                    if len(currencies) > 1:
+                        chart_ccy = st.selectbox("Currency for charts", currencies, key="openopts_chart_ccy")
+                        df_viz = df_strategies[df_strategies["currencyprimary"].eq(chart_ccy)].copy()
+                        short_puts_viz = unpaired_short_puts[unpaired_short_puts["currencyprimary"].eq(chart_ccy)].copy()
+                    else:
+                        df_viz = df_strategies.copy()
+                        short_puts_viz = unpaired_short_puts.copy()
+                    df_viz["net_opening_cashflow"] = -pd.to_numeric(df_viz["opening_cost"], errors="coerce").fillna(0.0)
+                    cc_summary = (df_viz.groupby("currencyprimary", dropna=False, as_index=False)
+                                  .agg(net_cashflow=("net_opening_cashflow", "sum")))
+                    exp_summary = (df_viz.groupby("expiry_dt", dropna=False, as_index=False)
+                                   .agg(net_cashflow=("net_opening_cashflow", "sum")))
+                    exp_summary["expiry"] = exp_summary["expiry_dt"].dt.strftime("%Y-%m-%d").fillna("N/A")
+                    tick_summary = (df_viz.groupby(["underlyingsymbol", "currencyprimary"], dropna=False, as_index=False)
+                                    .agg(net_cashflow=("net_opening_cashflow", "sum")))
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        st.markdown("**Net opening cash flow by currency**")
+                        st.altair_chart(
+                            alt.Chart(cc_summary).mark_bar().encode(
+                                x=alt.X("currencyprimary:N", title="Currency"),
+                                y=alt.Y("net_cashflow:Q", title="Cash received (+) / spent (-)"),
+                                tooltip=["currencyprimary:N", alt.Tooltip("net_cashflow:Q", format=",.2f")],
+                            ), use_container_width=True,
                         )
-                        .properties(width=260, height=220)
-                    )
-                    st.altair_chart(pie1, use_container_width=False)
-
-                with c2:
-                    st.subheader("Capital blocked by currency (short puts)")
-                    pie2 = (
-                        alt.Chart(cb_by_cc)
-                        .mark_arc(innerRadius=60)
-                        .encode(
-                            theta=alt.Theta("cb_sum:Q", title="Capital blocked"),
-                            color=alt.Color("currency:N", scale=alt.Scale(scheme="purples"), legend=None),
-                            tooltip=[alt.Tooltip("currency:N"), alt.Tooltip("cb_sum:Q", format=",.2f")]
+                        st.markdown("**By expiry — net opening cash flow**")
+                        st.altair_chart(
+                            alt.Chart(exp_summary).mark_bar().encode(
+                                x=alt.X("expiry:N", title="Expiry"),
+                                y=alt.Y("net_cashflow:Q", title="Cash received (+) / spent (-)"),
+                                tooltip=["expiry:N", alt.Tooltip("net_cashflow:Q", format=",.2f")],
+                            ), use_container_width=True,
                         )
-                        .properties(width=260, height=220)
-                    )
-                    st.altair_chart(pie2, use_container_width=False)
+                    with c2:
+                        st.markdown("**By underlying — net opening cash flow**")
+                        st.altair_chart(
+                            alt.Chart(tick_summary).mark_bar().encode(
+                                x=alt.X("underlyingsymbol:N", title="Underlying"),
+                                y=alt.Y("net_cashflow:Q", title="Cash received (+) / spent (-)"),
+                                color=alt.Color("currencyprimary:N", title="Currency"),
+                                tooltip=["underlyingsymbol:N", "currencyprimary:N",
+                                         alt.Tooltip("net_cashflow:Q", format=",.2f")],
+                            ), use_container_width=True,
+                        )
+                        st.markdown("**Unpaired short PUT notional by currency**")
+                        short_by_cc = (short_puts_viz.groupby("currencyprimary", dropna=False, as_index=False)
+                                       .agg(notional=("capital blocked", "sum")))
+                        if short_by_cc.empty:
+                            st.info("No standalone short PUT exposure in this selection.")
+                        else:
+                            st.altair_chart(
+                                alt.Chart(short_by_cc).mark_bar().encode(
+                                    x=alt.X("currencyprimary:N", title="Currency"),
+                                    y=alt.Y("notional:Q", title="Short PUT notional"),
+                                    tooltip=["currencyprimary:N", alt.Tooltip("notional:Q", format=",.2f")],
+                                ), use_container_width=True,
+                            )
 
-                # --- Row 2: bars (left axis = sum, right axis = % share)
-                l1, l2 = st.columns(2)
-
-                with l1:
-                    st.subheader("By expiry — sum & share % (currency filter applied)")
-                    base = alt.Chart(exp_agg).encode(x=alt.X("expiry_str:N", title="Expiry")).properties(height=320)
-                    bars = base.mark_bar().encode(
-                        y=alt.Y("up_sum:Q", title="Unearned premium (sum)", axis=alt.Axis(format=",.0f")),
-                        tooltip=[
-                            alt.Tooltip("expiry_str:N", title="Expiry"),
-                            alt.Tooltip("up_sum:Q", title="Sum", format=",.2f"),
-                            alt.Tooltip("share_pct:Q", title="Share %", format=",.2f"),
-                        ],
-                    )
-                    line = base.mark_line(point=True, color="red").encode(
-                        y=alt.Y("share_pct:Q", title="Share of total (%)")
-                    )
-                    st.altair_chart(alt.layer(bars, line).resolve_scale(y='independent'), use_container_width=True)
-
-                with l2:
-                    st.subheader("By ticker — sum & share % (currency filter applied)")
-                    base_t = alt.Chart(tic_agg).encode(x=alt.X("ticker:N", title="Ticker")).properties(height=320)
-                    bars_t = base_t.mark_bar().encode(
-                        y=alt.Y("up_sum:Q", title="Unearned premium (sum)", axis=alt.Axis(format=",.0f")),
-                        tooltip=[
-                            alt.Tooltip("ticker:N", title="Ticker"),
-                            alt.Tooltip("up_sum:Q", title="Sum", format=",.2f"),
-                            alt.Tooltip("share_pct:Q", title="Share %", format=",.2f"),
-                        ],
-                    )
-                    line_t = base_t.mark_line(point=True, color="red").encode(
-                        y=alt.Y("share_pct:Q", title="Share of total (%)")
-                    )
-                    st.altair_chart(alt.layer(bars_t, line_t).resolve_scale(y='independent'), use_container_width=True)
-
-            # ===================== RIGHT SIDE =====================
-            with right:
-                st.subheader("Summary")
-
-                def _count(side, opttype):
-                    mask = (df_opt.get("buy/sell") == side) & (df_opt.get("put/call") == opttype)
-                    return int(mask.sum())
-
-                counts_df = pd.DataFrame({
-                    "Metric": [
-                        "Count of positions (sell put)",
-                        "Count of positions (sell call)",
-                        "Count of positions (buy put)",
-                        "Count of positions (buy call)",
-                    ],
-                    "Value": [
-                        _count("SELL", "Put"),
-                        _count("SELL", "Call"),
-                        _count("BUY",  "Put"),
-                        _count("BUY",  "Call"),
-                    ],
-                })
-                st.dataframe(
-                    counts_df,
-                    hide_index=True,
-                    use_container_width=True,
-                    column_config={"Metric": st.column_config.TextColumn(),
-                                   "Value":  st.column_config.NumberColumn(format="%d")},
-                    height=190,
-                )
-
-                # Capital blocked & unearned premium totals by currency (show USD/EUR if present)
-                if CUR_COL:
-                    df_sp_all = df_opt[(df_opt.get("buy/sell") == "SELL") & (df_opt.get("put/call") == "Put")].copy()
-                    cap_tot = (
-                        df_sp_all.groupby(CUR_COL, dropna=False)["capital blocked"]
-                                 .apply(lambda s: s.abs().sum())
-                    )
-                    up_tot = (
-                        df_opt.groupby(CUR_COL, dropna=False)["unearned_premium"]
-                              .sum()
-                    )
-                    # Try to present in common order
-                    order = [c for c in ["USD", "EUR"] if c in cap_tot.index.union(up_tot.index)]
-                    cap_tot = cap_tot.reindex(order).fillna(0.0).round(2)
-                    up_tot  = up_tot.reindex(order).fillna(0.0).round(2)
-
-                    totals_df = pd.DataFrame({
-                        "Metric": [f"Capital blocked total ({c})" for c in order] +
-                                  [f"Unearned premium total ({c})" for c in order],
-                        "Value":  list(cap_tot.values) + list(up_tot.values),
-                    })
-                else:
-                    totals_df = pd.DataFrame({
-                        "Metric": ["Capital blocked total", "Unearned premium total"],
-                        "Value":  [df_opt["capital blocked"].abs().sum(), df_opt["unearned_premium"].sum()],
-                    })
-
-                st.dataframe(
-                    totals_df,
-                    hide_index=True,
-                    use_container_width=True,
-                    column_config={"Metric": st.column_config.TextColumn(),
-                                   "Value":  st.column_config.NumberColumn(format="%.2f")},
-                    height=220,
-                )
-
-                # Tables by expiry (kept)
-                exp_sp = df_opt.copy()
-                exp_sp["expiry_str"] = exp_sp["expiry_dt"].dt.strftime("%Y-%m-%d")
-                if CUR_COL:
-                    cap_by_exp = (
-                        exp_sp[exp_sp.get("buy/sell").eq("SELL") & exp_sp.get("put/call").eq("Put")]
-                        .groupby(["expiry_str", CUR_COL], dropna=False)["capital blocked"]
-                        .apply(lambda s: s.abs().sum())
-                        .unstack(CUR_COL)
-                        .fillna(0.0).round(2)
-                        .reset_index()
-                        .rename(columns={"expiry_str": "expiry"})
-                    )
-                    up_by_exp = (
-                        exp_sp.groupby(["expiry_str", CUR_COL], dropna=False)["unearned_premium"]
-                        .sum()
-                        .unstack(CUR_COL)
-                        .fillna(0.0).round(2)
-                        .reset_index()
-                        .rename(columns={"expiry_str": "expiry"})
-                    )
-                else:
-                    cap_by_exp = (
-                        exp_sp[exp_sp.get("buy/sell").eq("SELL") & exp_sp.get("put/call").eq("Put")]
-                        .groupby(["expiry_str"], dropna=False)["capital blocked"]
-                        .apply(lambda s: s.abs().sum())
-                        .reset_index().rename(columns={"capital blocked":"Total"})
-                    )
-                    up_by_exp = (
-                        exp_sp.groupby(["expiry_str"], dropna=False)["unearned_premium"]
-                        .sum().reset_index().rename(columns={"unearned_premium":"Total"})
-                    )
-
-                st.markdown("**Capital blocked by expiry**")
-                st.dataframe(cap_by_exp, hide_index=True, use_container_width=True)
-
-                st.markdown("**Unearned premium by expiry**")
-                st.dataframe(up_by_exp, hide_index=True, use_container_width=True)
-
-            # --------- SHOW DETAILS (by description)
-            st.markdown("---")
-            show_details = st.checkbox("Show details")
-            if show_details and not df_opt.empty:
-                sel = st.selectbox("description:", options=sorted(df_opt["description"].unique().tolist()))
-                details = df_tx.copy()
-                details.columns = [c.lower() for c in details.columns]
-                details = details[details.get("description") == sel]
-
-                # Sort by best available date column
-                date_candidates = [c for c in ("date", "tradedate", "settledate", "lasttradingday") if c in details.columns]
-                if date_candidates:
-                    sort_col = date_candidates[0]
-                    with pd.option_context('mode.chained_assignment', None):
-                        try:
-                            details[sort_col] = pd.to_datetime(details[sort_col], errors="coerce")
-                        except Exception:
-                            pass
-                    details = details.sort_values(sort_col, ascending=False)
-
-                st.dataframe(details, use_container_width=True, hide_index=True)
+                    with st.expander("Show underlying FIFO legs and source transactions"):
+                        st.markdown("**Open contract legs (before spread pairing)**")
+                        leg_cols = [c for c in ["description", "buy/sell", "put/call", "quantity",
+                                                "strike", "opening_cost", "DTE", "currencyprimary"] if c in df_legs.columns]
+                        st.dataframe(df_legs[leg_cols], use_container_width=True, hide_index=True)
+                        st.markdown("**Raw IBKR transactions (no changes made)**")
+                        detail_cols = [c for c in ["tradedate", "trade_id", "symbol", "description", "buy/sell",
+                                                   "quantity", "tradeprice", "proceeds", "ibcommission", "netcash"]
+                                       if c in df_options_raw.columns]
+                        st.dataframe(df_options_raw[detail_cols], use_container_width=True, hide_index=True)
+                        if "trade_id" in df_options_raw.columns:
+                            collisions = int(df_options_raw["trade_id"].duplicated(keep=False).sum())
+                            if collisions:
+                                st.warning(f"{collisions} source rows share a Trade_id with another row. "
+                                           "They are kept as separate executions; the hash is not a reliable unique execution ID.")
+                    st.caption("Limitation: historical transactions do not include execution timestamps, so "
+                               "FIFO within a trading day uses source row order. "
+                               "Standard option multiplier 100 is assumed unless a multiplier is present in the data; "
+                               "validate adjusted contracts with IBKR.")
 # ========================= PAGE: Open stock positions =========================
 elif page == "Open stock positions":
     st.header("Open stock positions")
