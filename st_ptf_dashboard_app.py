@@ -1181,9 +1181,16 @@ elif page == "Open option positions":
                 & pd.to_numeric(df_opt["quantity"], errors="coerce").gt(0)
             )
             df_hedges = df_opt.loc[hedge_mask].copy()
-            # Neither purchased CALLs nor paid QQQ/SPY puts are premium income.
-            # Exclude both from every unearned-premium total and chart.
-            df_premium_positions = df_opt.loc[~(bought_call_mask | hedge_mask)].copy()
+            # Vertical spreads have their own net debit/credit economics.
+            # Show them separately and exclude them from unearned premium income.
+            spread_mask = df_opt["position_type"].eq("Vertical spread")
+            df_spreads = df_opt.loc[spread_mask].copy()
+
+            # Only standalone positions remain in premium-income totals/charts.
+            # Long CALLs, paid QQQ/SPY PUT hedges and vertical spreads are excluded.
+            df_premium_positions = df_opt.loc[
+                ~(bought_call_mask | hedge_mask | spread_mask)
+            ].copy()
 
             # nice ordering
             sort_cols = [c for c in ["DTE", "description"] if c in df_opt.columns]
@@ -1247,7 +1254,7 @@ elif page == "Open option positions":
                 # They retain their FIFO purchase cost, but are not part of
                 # unearned premium totals, by-ticker/by-expiry charts or pies.
                 if not df_long_calls.empty:
-                    st.subheader("Purchased single CALL options")
+                    st.subheader("Long call options")
                     long_call_cols = [
                         "description", "strategy", "put/call", "quantity", "strike",
                         "premium", "DTE", CUR_COL,
@@ -1264,6 +1271,25 @@ elif page == "Open option positions":
                         use_container_width=True,
                         hide_index=True,
                         column_config=long_call_config,
+                    )
+
+                # Vertical spreads appear directly below Long call options.
+                # Keep the original table styling, but omit "unearned premium":
+                # entry costs of spreads are not premium income.
+                if not df_spreads.empty:
+                    st.subheader("Option spreads")
+                    spread_cols = [
+                        col for col in display_cols if col != "unearned_premium"
+                    ]
+                    spread_config = {
+                        col: cfg for col, cfg in col_config.items()
+                        if col in spread_cols
+                    }
+                    st.dataframe(
+                        df_spreads[spread_cols].sort_values(["DTE", "description"]),
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config=spread_config,
                     )
 
                 # ======== VISUALS ========
