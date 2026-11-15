@@ -1161,6 +1161,30 @@ elif page == "Open option positions":
                 ), axis=1
             )
 
+            # Purchased standalone CALLs have a debit cost basis, not premium income.
+            # Keep them separate from the unearned-premium tables/charts; spreads
+            # containing CALL legs are NOT excluded (they are different strategies).
+            bought_call_mask = (
+                df_opt["position_type"].eq("Single option")
+                & df_opt["option_code"].astype(str).str.upper().eq("C")
+                & pd.to_numeric(df_opt["quantity"], errors="coerce").gt(0)
+            )
+            df_long_calls = df_opt.loc[bought_call_mask].copy()
+
+            # Only standalone LONG puts on QQQ/SPY are treated as paid hedges.
+            # Vertical spreads (including a QQQ/SPY spread) and short puts stay
+            # in the regular Positions table. The existing FIFO costs are reused.
+            hedge_mask = (
+                df_opt["position_type"].eq("Single option")
+                & df_opt["option_code"].astype(str).str.upper().eq("P")
+                & df_opt["underlyingsymbol"].astype(str).str.upper().str.strip().isin(["QQQ", "SPY"])
+                & pd.to_numeric(df_opt["quantity"], errors="coerce").gt(0)
+            )
+            df_hedges = df_opt.loc[hedge_mask].copy()
+            # Neither purchased CALLs nor paid QQQ/SPY puts are premium income.
+            # Exclude both from every unearned-premium total and chart.
+            df_premium_positions = df_opt.loc[~(bought_call_mask | hedge_mask)].copy()
+
             # nice ordering
             sort_cols = [c for c in ["DTE", "description"] if c in df_opt.columns]
             if sort_cols:
@@ -1200,11 +1224,47 @@ elif page == "Open option positions":
                     col_config[CUR_COL] = st.column_config.TextColumn("currency")
 
                 st.dataframe(
-                    df_opt[display_cols],
+                    df_premium_positions[display_cols],
                     use_container_width=True,
                     hide_index=True,
                     column_config=col_config,
                 )
+
+                # Hedges: same columns, ordering and display configuration as
+                # Positions. 'premium' is the positive FIFO cost paid; the
+                # negative unearned-premium column is retained for layout parity
+                # but is NOT included in premium-income summaries or charts.
+                if not df_hedges.empty:
+                    st.subheader("Hedges")
+                    st.dataframe(
+                        df_hedges[display_cols].sort_values(["DTE", "description"]),
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config=col_config,
+                    )
+
+                # Bought single CALL options are held for potential appreciation.
+                # They retain their FIFO purchase cost, but are not part of
+                # unearned premium totals, by-ticker/by-expiry charts or pies.
+                if not df_long_calls.empty:
+                    st.subheader("Purchased single CALL options")
+                    long_call_cols = [
+                        "description", "strategy", "put/call", "quantity", "strike",
+                        "premium", "DTE", CUR_COL,
+                    ]
+                    long_call_cols = [c for c in long_call_cols if c in df_long_calls.columns]
+                    long_call_config = {
+                        c: v for c, v in col_config.items() if c in long_call_cols
+                    }
+                    long_call_config["premium"] = st.column_config.NumberColumn(
+                        "premium paid", format="%.2f"
+                    )
+                    st.dataframe(
+                        df_long_calls[long_call_cols],
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config=long_call_config,
+                    )
 
                 # ======== VISUALS ========
                 st.markdown("### Visuals")
@@ -1219,9 +1279,9 @@ elif page == "Open option positions":
                 )
 
                 if selected_curs and CUR_COL:
-                    df_vis = df_opt[df_opt[CUR_COL].isin(selected_curs)].copy()
+                    df_vis = df_premium_positions[df_premium_positions[CUR_COL].isin(selected_curs)].copy()
                 else:
-                    df_vis = df_opt.copy()
+                    df_vis = df_premium_positions.copy()
 
                 # Short puts subset (for capital blocked)
                 df_sp_vis = df_vis[(df_vis.get("buy/sell") == "SELL") & (df_vis.get("put/call") == "Put")].copy()
@@ -1373,11 +1433,11 @@ elif page == "Open option positions":
                                  .apply(lambda s: s.abs().sum())
                     )
                     up_tot = (
-                        df_opt.groupby(CUR_COL, dropna=False)["unearned_premium"]
+                        df_premium_positions.groupby(CUR_COL, dropna=False)["unearned_premium"]
                               .sum()
                     )
                     # Try to present in common order
-                    order = [c for c in ["USD", "EUR"] if c in cap_tot.index.union(up_tot.index)]
+                    order = [c for c in ["USD", "EUR"] if c in df_opt[CUR_COL].dropna().unique()]
                     cap_tot = cap_tot.reindex(order).fillna(0.0).round(2)
                     up_tot  = up_tot.reindex(order).fillna(0.0).round(2)
 
@@ -1389,8 +1449,23 @@ elif page == "Open option positions":
                 else:
                     totals_df = pd.DataFrame({
                         "Metric": ["Capital blocked total", "Unearned premium total"],
-                        "Value":  [df_opt["capital blocked"].abs().sum(), df_opt["unearned_premium"].sum()],
+                        "Value":  [df_opt["capital blocked"].abs().sum(), df_premium_positions["unearned_premium"].sum()],
                     })
+
+                # Append paid hedge cost immediately below the existing
+                # Unearned premium total row(s). Keep currencies separate if
+                # QQQ/SPY contracts ever arrive in more than one currency.
+                if CUR_COL and df_hedges[CUR_COL].dropna().nunique() > 1:
+                    hedge_rows = [
+                        {"Metric": f"Hedge (SPY/QQQ) ({ccy})", "Value": round(float(amount), 2)}
+                        for ccy, amount in df_hedges.groupby(CUR_COL)["premium"].sum().items()
+                    ]
+                else:
+                    hedge_rows = [{
+                        "Metric": "Hedge (SPY/QQQ)",
+                        "Value": round(float(df_hedges["premium"].sum()), 2),
+                    }]
+                totals_df = pd.concat([totals_df, pd.DataFrame(hedge_rows)], ignore_index=True)
 
                 st.dataframe(
                     totals_df,
@@ -1402,7 +1477,7 @@ elif page == "Open option positions":
                 )
 
                 # Tables by expiry (kept)
-                exp_sp = df_opt.copy()
+                exp_sp = df_premium_positions.copy()
                 exp_sp["expiry_str"] = exp_sp["expiry_dt"].dt.strftime("%Y-%m-%d")
                 if CUR_COL:
                     cap_by_exp = (
